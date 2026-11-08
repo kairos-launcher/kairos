@@ -1,0 +1,26 @@
+id = "emoji"
+name = "Emoji"
+version = "0.1.0"
+description = "Find an emoji by name or keyword and copy it: `:thumbs`, `:heart`, `emoji party`."
+
+[run]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[run.exec]
+windows = ["./kairos-emoji.exe"]
+linux = ["./kairos-emoji"]
+macos = ["./kairos-emoji"]
+
+[query]
+triggers = [":", "emoji "]
+global = false
+timeout_ms = 150
+
+[[settings]]
+key = "skin_tone"
+type = "choice"
+label = "Skin tone"
+description = "used for emoji that have skin tones; empty: the default yellow"
+options = ["", "light", "medium-light", "medium", "medium-dark", "dark"]
+default = ""

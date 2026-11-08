@@ -1,0 +1,29 @@
+[package]
+name = "bookmarks"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Browser bookmarks plugin for the launcher (Firefox and Chromium-based browsers, JSON-RPC stdio)."
+
+[[bin]]
+name = "kairos-bookmarks"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+# SQLite for Firefox's places.sqlite; bundled so nothing needs to be installed. External plugin,
+# so it costs the launcher no memory.
+rusqlite = { version = "0.41", features = ["bundled"] }
+
+[build-dependencies]
+winresource = { version = "0.1", default-features = false }
+
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

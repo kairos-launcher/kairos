@@ -1,0 +1,18 @@
+id = "echo-go"
+name = "Echo (Go)"
+version = "0.1.0"
+description = "Reference plugin in Go. Build it first: go build (next to this file)."
+
+[run]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[run.exec]
+windows = ["./echo-go.exe"]
+linux = ["./echo-go"]
+macos = ["./echo-go"]
+
+[query]
+triggers = ["echogo "]
+global = false
+timeout_ms = 500

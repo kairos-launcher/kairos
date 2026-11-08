@@ -1,0 +1,29 @@
+id = "builtin-shell"
+name = "Shell"
+version = "0.1.0"
+description = "Run a shell command: `> htop` opens it in a terminal; recent commands are remembered."
+
+[query]
+triggers = [">"]
+global = false
+
+[[settings]]
+key = "terminal"
+type = "string"
+label = "Terminal"
+description = "terminal command that runs what follows it, e.g. \"kitty\" or \"gnome-terminal --\"; empty = detect"
+default = ""
+
+[[settings]]
+key = "keep_open"
+type = "bool"
+label = "Keep terminal open"
+description = "leave a shell running in the terminal after the command ends"
+default = true
+
+[[settings]]
+key = "history"
+type = "number"
+label = "History"
+description = "how many recent commands to remember (0 = none)"
+default = 50

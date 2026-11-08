@@ -1,0 +1,22 @@
+// Colours for both schemes. `mode`: 0 follow the system, 1 dark, 2 light.
+// Rust keeps `system-dark` current from the desktop settings.
+export global Theme {
+    in-out property <int> mode: 0;
+    in-out property <bool> system-dark: true;
+    // Windows cannot show transparent corners (no per-pixel alpha), so Rust sets 0 there.
+    in-out property <length> corner-radius: 14px;
+    out property <bool> dark: mode == 1 || (mode == 0 && system-dark);
+
+    out property <color> bg: dark ? #17181d : #fbfbfd;
+    out property <color> border: dark ? #2d2f3a : #d9dbe4;
+    out property <color> text: dark ? #eaebf1 : #1b1c22;
+    out property <color> muted: dark ? #8b8e9d : #6a6d7b;
+    out property <color> placeholder: dark ? #5f6272 : #9a9dab;
+    out property <color> divider: dark ? #262831 : #e6e7ee;
+    out property <color> selection: dark ? #272a3b : #e6eafc;
+    out property <color> hover: dark ? #1f212b : #f0f1f7;
+    out property <color> header: dark ? #121317 : #f3f4f8;
+    out property <color> tile: dark ? #232632 : #e8eaf2;
+    out property <color> accent: dark ? #8299ff : #3b5bdb;
+    out property <color> error: dark ? #ff8a8a : #c92a2a;
+}

@@ -1,0 +1,119 @@
+[package]
+name = "kairos"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+description = "A fast, low-memory application launcher with a plugin system (Rust + Slint)."
+license = "MIT"
+readme = "README.md"
+keywords = ["launcher", "desktop", "productivity", "slint", "plugins"]
+categories = ["gui", "command-line-utilities"]
+publish = false
+
+[dependencies]
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+base64 = "0.23"
+# Already built for Slint's StyledText; used to rewrite answers into the markdown it accepts.
+pulldown-cmark = { version = "0.13", default-features = false }
+# Already built for Slint; draws SVG-only theme icons once into a bitmap.
+resvg = { version = "0.48", default-features = false }
+dirs = "7"
+global-hotkey = "0.9.0"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+slint = { version = "1.18.1", default-features = false, features = ["std", "backend-winit-x11", "backend-winit-wayland", "renderer-software", "compat-1-2", "unstable-winit-030"] }
+toml = "1"
+toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "socks-proxy"], optional = true }
+# Already built for rustls; SHA-256 of downloaded updates.
+ring = { version = "0.17", optional = true }
+
+[build-dependencies]
+slint-build = "1.18.1"
+# Embeds packaging/kairos.ico as the exe icon (also when cross-building from Linux via MinGW).
+winresource = { version = "0.1", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dev-dependencies]
+i-slint-backend-testing = "1.18.1"
+# Only for `cargo run --example gen_icons`.
+png = "0.18"
+tempfile = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
+x11rb = "0.13"
+
+[target."cfg(windows)".dependencies]
+# Already built for Slint's image decoding; used here to save extracted app icons.
+png = "0.18"
+tray-icon = { version = "0.26", default-features = false }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Networking_WinHttp",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_ProcessStatus",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# softbuffer 0.4.8 presents Wayland frames without alpha (transparent pixels turn black) and
+# keeps a resized buffer's age (stale pixels after the window grows). See vendor/softbuffer/PATCH.md.
+[patch.crates-io]
+softbuffer = { path = "vendor/softbuffer" }
+
+[features]
+default = ["remote"]
+# HTTPS transport for remote plugins and self-update (pulls in a TLS stack).
+remote = ["dep:ureq", "dep:ring"]
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that cost more readability than they buy here.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+too_many_lines = "allow"
+similar_names = "allow"
+# `s += &format!(..)` reads better than `let _ = write!(s, ..)`.
+format_push_string = "allow"
+many_single_char_names = "allow"
+# Pixel maths and scores mix ints and floats on purpose; values are small.
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+# `assert!(v.is_empty())` reads better than `assert_eq!(v, [] as [T; 0])` in tests.
+assert_is_empty = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+# Restriction lints we opt into.
+unwrap_used = "warn"
+expect_used = "warn"
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "warn"
+todo = "warn"

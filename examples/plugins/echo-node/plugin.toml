@@ -1,0 +1,14 @@
+id = "echo-node"
+name = "Echo (Node.js)"
+version = "0.1.0"
+description = "Reference plugin in Node.js (needs `node` on PATH)."
+
+[run]
+exec = ["node", "echo.js"]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[query]
+triggers = ["echojs "]
+global = false
+timeout_ms = 500

@@ -1,0 +1,13 @@
+id = "echo-remote"
+name = "Echo (remote)"
+version = "0.1.0"
+description = "Reference remote plugin: the echo plugin served over HTTPS. See server.py."
+
+[run]
+url = "https://localhost:8443/rpc"   # change to your server; must be https
+
+[remote]
+auth = "bearer"    # token: KAIROS_TOKEN_ECHO_REMOTE or `kairos --set-token echo-remote`
+
+[query]
+triggers = ["recho "]

@@ -1,0 +1,33 @@
+[package]
+name = "emoji"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Emoji picker plugin for the launcher (JSON-RPC stdio)."
+
+[[bin]]
+name = "kairos-emoji"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+# Colour emoji images from the system's emoji font (PNG bitmaps in Noto Color Emoji / Apple
+# Color Emoji): shaping finds the glyph of a sequence (flags, skin tones, ZWJ), harfrust's font
+# model (read-fonts) reads its bitmap, png scales it down. The launcher then shows small images
+# instead of drawing emoji with fallback fonts.
+harfrust = "0.15"
+png = "0.18"
+base64 = "0.23"
+
+[build-dependencies]
+winresource = { version = "0.1", default-features = false }
+
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,14 @@
+id = "echo-py"
+name = "Echo (Python)"
+version = "0.1.0"
+description = "Reference plugin: echoes the query. Copy this folder to start a plugin."
+
+[run]
+exec = ["python3", "echo.py"]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[query]
+triggers = ["echopy "]
+global = false
+timeout_ms = 500

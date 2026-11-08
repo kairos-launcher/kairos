@@ -1,0 +1,27 @@
+id = "calc"
+name = "Calculator"
+version = "0.3.0"
+description = "Math, unit and currency conversion: `= 2+2`, `5 km to miles`, `100 usd to chf`."
+
+[run]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[run.exec]
+windows = ["./kairos-calc.exe"]
+linux = ["./kairos-calc"]
+macos = ["./kairos-calc"]
+
+[query]
+triggers = ["="]
+global = true
+# Plain searches without a digit are never math; the process is not even started for them.
+global_requires = "0123456789"
+timeout_ms = 150
+
+[[settings]]
+key = "currency"
+type = "bool"
+label = "Currency conversion"
+description = "Downloads the ECB exchange rates (no account needed) the first time you convert money, then at most twice a day"
+default = true

@@ -1,0 +1,25 @@
+id = "devtools"
+name = "Dev utilities"
+version = "0.1.0"
+description = "Generate and convert values to copy: `uuid`, `genpw 32`, `urlencode a b`, `urldecode a%20b`, `base64 encode hi`, `hash sha256 hi`."
+
+[run]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[run.exec]
+windows = ["./kairos-devtools.exe"]
+linux = ["./kairos-devtools"]
+macos = ["./kairos-devtools"]
+
+[query]
+triggers = ["uuid ", "genpw ", "urlencode ", "urldecode ", "base64 ", "hash "]
+global = false
+timeout_ms = 150
+
+[[settings]]
+key = "password_length"
+type = "number"
+label = "Password length"
+description = "used when you type just `genpw`"
+default = 20

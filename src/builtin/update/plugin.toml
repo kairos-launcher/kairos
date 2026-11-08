@@ -1,0 +1,15 @@
+id = "builtin-update"
+name = "Update"
+version = "0.1.0"
+description = "Keeps Kairos up to date from its GitHub releases. Disable to never check."
+
+[query]
+triggers = ["update "]
+global = true
+
+[[settings]]
+key = "auto_install"
+type = "bool"
+label = "Install automatically"
+description = "download new versions and install them while the launcher is hidden (off: only show that one is available)"
+default = true

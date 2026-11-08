@@ -1,0 +1,713 @@
+// A plugin's settings page: one row per setting from its manifest, edited in place and saved
+// together. Rust (`src/ui/settings.rs`) owns the values; these components only report edits.
+import { Theme } from "theme.slint";
+
+export struct SettingField {
+    key: string,
+    label: string,
+    description: string,
+    placeholder: string,
+    /// 0 text, 1 number, 2 bool, 3 choice, 4 secret, 5 named secrets, 6 lines (list),
+    /// 7 TOML (table, list of tables), 8 read-only, 9 entries (a table with fields, edited one
+    /// by one), 10 key/value pairs (a table of strings).
+    kind: int,
+    text: string,
+    options: [string],
+    option-labels: [string],
+    choice-index: int,
+    /// Choice shown as buttons side by side (few, short options), else as ‹ value ›.
+    segmented: bool,
+    /// Secret: a value is stored.
+    is-set: bool,
+    /// Named secrets, pairs, entries: their names.
+    names: [string],
+    /// Pairs: the values; entries: one line about each.
+    values: [string],
+    dirty: bool,
+    /// The user's value differs from the default: offer Reset.
+    user-set: bool,
+    required: bool,
+    error: string,
+    /// Height of a multi-line field, in lines.
+    rows: int,
+}
+
+component Link inherits Text {
+    callback clicked();
+    font-size: 12px;
+    color: link-ta.has-hover ? Theme.text : Theme.accent;
+    link-ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component TextBox inherits Rectangle {
+    in property <string> text;
+    in property <string> placeholder;
+    in property <bool> password;
+    in property <bool> multi-line;
+    in property <int> rows: 1;
+    in property <bool> autofocus;
+    out property <string> value: ti.text;
+    callback edited(string);
+    callback accepted();
+
+    public function clear() {
+        ti.text = "";
+    }
+
+    height: root.multi-line ? max(root.rows * 19px, ti.preferred-height) + 16px : 32px;
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.border;
+    background: Theme.header;
+    clip: true;
+
+    ti := TextInput {
+        x: 10px;
+        y: root.multi-line ? 8px : 0px;
+        width: parent.width - 20px;
+        height: root.multi-line ? parent.height - 16px : parent.height;
+        text: root.text;
+        single-line: !root.multi-line;
+        wrap: root.multi-line ? word-wrap : no-wrap;
+        input-type: root.password ? InputType.password : InputType.text;
+        vertical-alignment: root.multi-line ? top : center;
+        font-size: 14px;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: #ffffff;
+        init => {
+            if root.autofocus {
+                self.focus();
+            }
+        }
+        edited => {
+            root.edited(self.text);
+        }
+        accepted => {
+            root.accepted();
+        }
+    }
+
+    Text {
+        x: ti.x;
+        y: ti.y;
+        width: ti.width;
+        height: root.multi-line ? self.preferred-height : ti.height;
+        visible: ti.text == "";
+        text: root.placeholder;
+        font-size: 14px;
+        color: Theme.placeholder;
+        vertical-alignment: root.multi-line ? top : center;
+        wrap: root.multi-line ? word-wrap : no-wrap;
+        overflow: elide;
+    }
+}
+
+component Toggle inherits FocusScope {
+    in property <bool> on;
+    in property <bool> autofocus;
+    callback toggled();
+    width: 40px;
+    height: 22px;
+    init => {
+        if root.autofocus {
+            self.focus();
+        }
+    }
+    key-pressed(e) => {
+        if e.text == " " || e.text == Key.Return {
+            root.toggled();
+            return accept;
+        }
+        reject
+    }
+    Rectangle {
+        border-radius: self.height / 2;
+        background: root.on ? Theme.accent : Theme.tile;
+        border-width: root.has-focus ? 2px : 1px;
+        border-color: root.has-focus ? Theme.text : Theme.border;
+        Rectangle {
+            x: root.on ? parent.width - self.width - 3px : 3px;
+            y: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            background: #ffffff;
+            animate x { duration: 100ms; }
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.focus();
+            root.toggled();
+        }
+    }
+}
+
+component Choice inherits FocusScope {
+    in property <[string]> labels;
+    in property <int> index;
+    in property <bool> segmented;
+    in property <bool> autofocus;
+    callback picked(int);
+    height: 32px;
+    init => {
+        if root.autofocus {
+            self.focus();
+        }
+    }
+    key-pressed(e) => {
+        if e.text == Key.LeftArrow {
+            root.picked(Math.mod(root.index - 1 + root.labels.length, root.labels.length));
+            return accept;
+        }
+        if e.text == Key.RightArrow || e.text == " " {
+            root.picked(Math.mod(root.index + 1, root.labels.length));
+            return accept;
+        }
+        reject
+    }
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: root.has-focus ? Theme.accent : Theme.border;
+        background: Theme.header;
+        if root.segmented: HorizontalLayout {
+            padding: 3px;
+            spacing: 3px;
+            for label[n] in root.labels: Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 5px;
+                background: n == root.index ? Theme.selection : (seg-ta.has-hover ? Theme.hover : transparent);
+                Text {
+                    text: label;
+                    font-size: 13px;
+                    color: n == root.index ? Theme.text : Theme.muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                seg-ta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.focus();
+                        root.picked(n);
+                    }
+                }
+            }
+        }
+        if !root.segmented: HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
+            Text {
+                width: 24px;
+                text: "‹";
+                font-size: 16px;
+                color: prev-ta.has-hover ? Theme.text : Theme.muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                prev-ta := TouchArea {
+                    clicked => {
+                        root.focus();
+                        root.picked(Math.mod(root.index - 1 + root.labels.length, root.labels.length));
+                    }
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.labels[root.index];
+                font-size: 14px;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                width: 24px;
+                text: "›";
+                font-size: 16px;
+                color: next-ta.has-hover ? Theme.text : Theme.muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                next-ta := TouchArea {
+                    clicked => {
+                        root.focus();
+                        root.picked(Math.mod(root.index + 1, root.labels.length));
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    callback clicked();
+    width: label.preferred-width + 24px;
+    height: 26px;
+    border-radius: 6px;
+    background: root.primary ? (btn-ta.has-hover ? Theme.text : Theme.accent) : (btn-ta.has-hover ? Theme.hover : Theme.tile);
+    label := Text {
+        text: root.text;
+        font-size: 13px;
+        color: root.primary ? Theme.bg : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    btn-ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Named secrets (values hidden) or key/value pairs: one row each, then a row to add one.
+component KeyValues inherits VerticalLayout {
+    in property <[string]> names;
+    in property <[string]> values;
+    in property <bool> secret;
+    in property <bool> autofocus;
+    callback add(string, string);
+    callback remove(string);
+    spacing: 6px;
+    for name[n] in root.names: HorizontalLayout {
+        spacing: 10px;
+        if root.secret: Text {
+            horizontal-stretch: 1;
+            text: name;
+            font-size: 14px;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        // Lined up with the key box below.
+        if !root.secret: Text {
+            width: 34%;
+            text: name;
+            font-size: 14px;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if !root.secret: Text {
+            horizontal-stretch: 1;
+            text: "= " + root.values[n];
+            font-size: 14px;
+            color: Theme.muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Link {
+            text: "Remove";
+            vertical-alignment: center;
+            clicked => {
+                root.remove(name);
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        name-box := TextBox {
+            width: 34%;
+            placeholder: root.secret ? "name" : "key";
+            autofocus: root.autofocus;
+        }
+        value-box := TextBox {
+            horizontal-stretch: 1;
+            placeholder: "value";
+            password: root.secret;
+            accepted => {
+                add-btn.clicked();
+            }
+        }
+        add-btn := Button {
+            y: 3px;
+            text: "Add";
+            clicked => {
+                if name-box.value != "" {
+                    root.add(name-box.value, value-box.value);
+                    name-box.clear();
+                    value-box.clear();
+                }
+            }
+        }
+    }
+}
+
+// Entries of a table with fields: name, a line about it, Edit, Remove; then a name and Add,
+// which opens the new entry's form.
+component Entries inherits VerticalLayout {
+    in property <[string]> names;
+    in property <string> placeholder;
+    in property <[string]> values;
+    in property <bool> autofocus;
+    callback open(string);
+    callback remove(string);
+    spacing: 6px;
+    for name[n] in root.names: HorizontalLayout {
+        spacing: 10px;
+        Text {
+            width: 34%;
+            text: name;
+            font-size: 14px;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.open(name);
+                }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.values[n];
+            font-size: 13px;
+            color: Theme.muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Link {
+            text: "Edit";
+            vertical-alignment: center;
+            clicked => {
+                root.open(name);
+            }
+        }
+        Link {
+            text: "Remove";
+            vertical-alignment: center;
+            clicked => {
+                root.remove(name);
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        new-box := TextBox {
+            horizontal-stretch: 1;
+            placeholder: root.placeholder != "" ? root.placeholder : "name of a new entry";
+            autofocus: root.autofocus;
+            accepted => {
+                new-btn.clicked();
+            }
+        }
+        new-btn := Button {
+            y: 3px;
+            text: "Add…";
+            clicked => {
+                if new-box.value != "" {
+                    root.open(new-box.value);
+                }
+            }
+        }
+    }
+}
+
+component FieldRow inherits HorizontalLayout {
+    in property <SettingField> field;
+    in property <bool> autofocus;
+    callback edited(string);
+    callback reset();
+    callback item-add(string, string);
+    callback item-remove(string);
+    callback entry-open(string);
+    callback open-config();
+
+    padding-left: 24px;
+    padding-right: 24px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    spacing: 16px;
+
+        VerticalLayout {
+            width: 140px;
+            alignment: start;
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    min-height: 32px;
+                    horizontal-stretch: 1;
+                    text: root.field.label + (root.field.required ? " *" : "");
+                    font-size: 14px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+                if root.field.dirty: Rectangle {
+                    width: 6px;
+                    Rectangle {
+                        y: (32px - self.height) / 2;
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Theme.accent;
+                    }
+                }
+            }
+            if root.field.user-set && root.field.kind != 4 && root.field.kind != 5 && root.field.kind != 8: Link {
+                text: "Reset to default";
+                clicked => {
+                    root.reset();
+                }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: start;
+            spacing: 4px;
+
+            if root.field.kind == 0 || root.field.kind == 1: TextBox {
+                text: root.field.text;
+                placeholder: root.field.placeholder;
+                autofocus: root.autofocus;
+                edited(t) => {
+                    root.edited(t);
+                }
+            }
+            if root.field.kind == 2: HorizontalLayout {
+                alignment: start;
+                spacing: 10px;
+                padding-top: 5px;
+                padding-bottom: 5px;
+                Toggle {
+                    on: root.field.text == "true";
+                    autofocus: root.autofocus;
+                    toggled => {
+                        root.edited(root.field.text == "true" ? "false" : "true");
+                    }
+                }
+                Text {
+                    text: root.field.text == "true" ? "On" : "Off";
+                    font-size: 13px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+            }
+            if root.field.kind == 3: Choice {
+                labels: root.field.option-labels;
+                index: root.field.choice-index;
+                segmented: root.field.segmented;
+                autofocus: root.autofocus;
+                picked(n) => {
+                    root.edited(root.field.options[n]);
+                }
+            }
+            if root.field.kind == 4: HorizontalLayout {
+                spacing: 10px;
+                TextBox {
+                    horizontal-stretch: 1;
+                    text: root.field.text;
+                    password: true;
+                    placeholder: root.field.is-set ? "•••••••• stored · type to replace" : (root.field.dirty ? "removed when you save" : (root.field.placeholder != "" ? root.field.placeholder : "not set"));
+                    autofocus: root.autofocus;
+                    edited(t) => {
+                        root.edited(t);
+                    }
+                }
+                if root.field.is-set: Link {
+                    text: "Remove";
+                    vertical-alignment: center;
+                    clicked => {
+                        root.reset();
+                    }
+                }
+            }
+            if root.field.kind == 5 || root.field.kind == 10: KeyValues {
+                names: root.field.names;
+                values: root.field.values;
+                secret: root.field.kind == 5;
+                autofocus: root.autofocus;
+                add(name, value) => {
+                    root.item-add(name, value);
+                }
+                remove(name) => {
+                    root.item-remove(name);
+                }
+            }
+            if root.field.kind == 9: Entries {
+                names: root.field.names;
+                placeholder: root.field.placeholder;
+                values: root.field.values;
+                autofocus: root.autofocus;
+                open(name) => {
+                    root.entry-open(name);
+                }
+                remove(name) => {
+                    root.item-remove(name);
+                }
+            }
+            if root.field.kind == 6 || root.field.kind == 7: TextBox {
+                text: root.field.text;
+                placeholder: root.field.placeholder;
+                multi-line: true;
+                rows: root.field.rows;
+                autofocus: root.autofocus;
+                edited(t) => {
+                    root.edited(t);
+                }
+            }
+            if root.field.kind == 8: HorizontalLayout {
+                spacing: 10px;
+                Text {
+                    horizontal-stretch: 1;
+                    min-height: 32px;
+                    text: root.field.text;
+                    font-size: 14px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Link {
+                    text: "Edit config.toml";
+                    vertical-alignment: center;
+                    clicked => {
+                        root.open-config();
+                    }
+                }
+            }
+            if root.field.description != "": Text {
+                text: root.field.kind == 6 ? root.field.description + " · one per line" : root.field.description;
+                font-size: 12px;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+            if root.field.error != "": Text {
+                text: root.field.error;
+                font-size: 12px;
+                color: Theme.error;
+                wrap: word-wrap;
+            }
+        }
+}
+
+export component SettingsPanel inherits Rectangle {
+    in property <[SettingField]> fields;
+    /// Give the first field the keyboard when the rows are created (the page just opened).
+    in property <bool> autofocus;
+    in property <string> status;
+    in property <bool> status-error;
+    in property <int> dirty-count;
+    in property <length> max-body-height;
+    in property <length> footer-height: 34px;
+    // Slint creates the rows at the next frame; until then the body measures only its padding.
+    // Start at full height then, and only shrink once measured: growing after the first frame
+    // would leave the newly exposed area unpainted (stale pixels of the results list).
+    property <length> body-height: root.fields.length > 0 && body.preferred-height <= 2 * body.padding-top ? root.max-body-height : min(root.max-body-height, body.preferred-height);
+    out property <length> wanted-height: root.body-height + 1px + root.footer-height;
+    callback edited(int, string);
+    callback reset(int);
+    callback item-add(int, string, string);
+    callback item-remove(int, string);
+    callback entry-open(int, string);
+    callback open-config();
+    callback save();
+
+    VerticalLayout {
+        Rectangle {
+            height: root.body-height;
+        flick := Flickable {
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                width: flick.width;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                for f[i] in root.fields: FieldRow {
+                    field: f;
+                    autofocus: root.autofocus && i == 0;
+                    edited(t) => {
+                        root.edited(i, t);
+                    }
+                    reset => {
+                        root.reset(i);
+                    }
+                    item-add(n, v) => {
+                        root.item-add(i, n, v);
+                    }
+                    item-remove(n) => {
+                        root.item-remove(i, n);
+                    }
+                    entry-open(n) => {
+                        root.entry-open(i, n);
+                    }
+                    open-config => {
+                        root.open-config();
+                    }
+                }
+            }
+        }
+        // Scrollbar: shows where the view is; drag the thumb to scroll.
+        if flick.content-height > flick.height + 1px: bar := Rectangle {
+            property <float> ratio: flick.height / flick.content-height;
+            x: parent.width - 10px;
+            width: 10px;
+            Rectangle {
+                x: 3px;
+                y: -flick.content-y * parent.ratio;
+                width: thumb-ta.has-hover || thumb-ta.pressed ? 6px : 4px;
+                height: max(24px, flick.height * parent.ratio);
+                border-radius: self.width / 2;
+                background: thumb-ta.pressed ? Theme.muted : Theme.border;
+                thumb-ta := TouchArea {
+                    property <length> start-y;
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            self.start-y = flick.content-y;
+                        }
+                    }
+                    moved => {
+                        flick.content-y = max(flick.height - flick.content-height, min(0px,
+                            self.start-y - (self.mouse-y - self.pressed-y) / bar.ratio));
+                    }
+                }
+            }
+        }
+        }
+        Rectangle {
+            height: 1px;
+            background: Theme.divider;
+        }
+        Rectangle {
+            height: root.footer-height;
+            background: Theme.header;
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 12px;
+                spacing: 12px;
+                Text {
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                    font-size: 12px;
+                    overflow: elide;
+                    color: root.status-error ? Theme.error : Theme.muted;
+                    text: root.status != "" ? root.status : root.dirty-count == 0 ? "No changes" : root.dirty-count == 1 ? "1 unsaved change" : root.dirty-count + " unsaved changes";
+                }
+                Text {
+                    vertical-alignment: center;
+                    font-size: 12px;
+                    color: Theme.muted;
+                    text: "Tab Next    Esc Back";
+                }
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Save  Ctrl+S";
+                    primary: root.dirty-count > 0;
+                    clicked => {
+                        root.save();
+                    }
+                }
+            }
+        }
+    }
+}

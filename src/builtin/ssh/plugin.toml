@@ -1,0 +1,22 @@
+id = "builtin-ssh"
+name = "SSH"
+version = "0.1.0"
+description = "Connect to hosts from ~/.ssh/config in a terminal: `ssh web1`."
+
+[query]
+triggers = ["ssh "]
+global = false
+
+[[settings]]
+key = "terminal"
+type = "string"
+label = "Terminal"
+description = "terminal command that runs what follows it, e.g. \"kitty\" or \"gnome-terminal --\"; empty = detect"
+default = ""
+
+[[settings]]
+key = "config"
+type = "path"
+label = "SSH config"
+description = "file to read hosts from"
+default = "~/.ssh/config"

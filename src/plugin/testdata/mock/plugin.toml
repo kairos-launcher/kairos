@@ -1,0 +1,12 @@
+# Test fixture for src/plugin/external_tests.rs. Behaviour is chosen by the query text; see mock.py.
+id = "mock"
+name = "Mock"
+version = "0.0.0"
+
+[run]
+exec = ["python3", "mock.py"]
+
+[query]
+triggers = ["mock "]
+global = false
+timeout_ms = 2000

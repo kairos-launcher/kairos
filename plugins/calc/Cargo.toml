@@ -1,0 +1,31 @@
+[package]
+name = "calc"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Calculator plugin for the launcher (fend-core over JSON-RPC stdio)."
+
+# Windows flags a generic `calc.exe` (same name as a system tool) as suspicious; keep it unique.
+[[bin]]
+name = "kairos-calc"
+path = "src/main.rs"
+
+[dependencies]
+fend-core = "1.5.8"
+serde_json = "1"
+ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier", "socks-proxy"] }
+
+[build-dependencies]
+# Version info and icon in the exe's resources (also when cross-building from Linux via MinGW).
+winresource = { version = "0.1", default-features = false }
+
+# Built on its own, not as part of the launcher's crate.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

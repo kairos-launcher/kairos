@@ -1,0 +1,747 @@
+import { Theme } from "theme.slint";
+import { SettingField, SettingsPanel } from "settings.slint";
+
+export struct Item {
+    title: string,
+    subtitle: string,
+    /// Letter or symbol shown in a tile when there is no image.
+    glyph: string,
+    icon: image,
+    has-icon: bool,
+    /// Appeared after the first results of this search: fades in.
+    fresh: bool,
+}
+
+export struct ActionItem {
+    title: string,
+    is-default: bool,
+}
+
+export { Theme, SettingField }
+
+export component MainWindow inherits Window {
+    // Layout constants.
+    property <length> input-h: 68px;
+    property <length> row-h: 52px;
+    property <length> list-pad: 8px;
+    // Menu mode shows a header row (the selected result) plus its actions.
+    property <int> row-count: menu-open ? 1 + min(actions.length, 8) : min(items.length, 8);
+    property <bool> list-visible: !busy && !settings-open && (menu-open || (!output-open && items.length > 0));
+    // Output panel: as tall as its text, from three lines up to the height of 8 rows.
+    property <length> footer-h: 34px;
+    property <length> output-pad: 14px;
+    property <length> output-max: 2 * list-pad + 8 * row-h - footer-h - 1px;
+    property <bool> panel-visible: output-open && !menu-open && !settings-open;
+    property <length> output-h: min(output-max, max(3 * 20px, output-content-h) + 2 * output-pad);
+    property <length> output-content-h: (output-title == "" ? 0px : 22px) + out-body-h;
+    property <length> out-body-h: output-markdown ? out-styled.preferred-height : out-text.preferred-height;
+
+    out property <length> wanted-height: input-h + (settings-open ? 1px + settings.wanted-height : panel-visible ? 1px + output-h + 1px + footer-h : list-visible ? 1px + 2 * list-pad + row-count * row-h : 0px);
+
+    no-frame: true;
+    always-on-top: true;
+    /// Taskbar / alt-tab icon, drawn in Rust (`src/app_icon.rs`).
+    in property <image> app-icon;
+    icon: app-icon;
+    width: 640px;
+    height: wanted-height;
+    // The card below draws the rounded, bordered background; the window itself is clear.
+    background: transparent;
+    default-font-size: 14px;
+
+    in property <[Item]> items;
+    /// Some provider has not answered yet: a thin bar sweeps under the search box.
+    in property <bool> searching: false;
+    /// An action is running: the list is hidden and a spinner turns next to the grip.
+    in property <bool> busy: false;
+    in-out property <int> selected: 0;
+    in-out property <string> query;
+    callback query-changed(string);
+    // Tab actions menu for the selected result.
+    in property <[ActionItem]> actions;
+    in-out property <bool> menu-open: false;
+    in-out property <int> action-selected: 0;
+    callback activate(int);
+    callback open-menu(int);
+    callback run-action(int, int);
+    callback dismiss();
+    // Output panel: an action's (possibly streaming) result replaces the list.
+    in property <bool> output-open: false;
+    in property <string> output-title;
+    in property <string> output-text;
+    /// The text is markdown: `output-styled` is shown instead of `output-text` (not selectable).
+    in property <bool> output-markdown: false;
+    in property <styled-text> output-styled;
+    /// A link in a markdown answer was clicked.
+    callback output-link(string);
+    /// 0 working, 1 done, 2 failed (`output-message` says why).
+    in property <int> output-status: 0;
+    in property <string> output-message;
+    /// What Enter does in the panel, for the key hint ("Copy").
+    in property <string> output-enter: "Copy";
+    /// The search box takes follow-up text for the plugin (`output-send`).
+    in property <bool> output-input: false;
+    in property <string> output-placeholder;
+    callback output-send(string);
+    /// Run an output action: an index into `actions`, or -1 for the default.
+    callback output-action(int);
+    callback output-menu();
+    callback output-back();
+    /// Stop a streaming answer (Ctrl+C); the panel stays.
+    callback output-stop();
+    // Settings page of one plugin (`src/ui/settings.rs`); replaces the list while open.
+    in property <bool> settings-open: false;
+    in property <string> settings-title;
+    in property <[SettingField]> settings-fields;
+    in property <bool> settings-autofocus;
+    in property <string> settings-status;
+    in property <bool> settings-status-error;
+    in property <int> settings-dirty;
+    callback settings-edited(int, string);
+    callback settings-reset(int);
+    callback settings-item-add(int, string, string);
+    callback settings-item-remove(int, string);
+    callback settings-entry-open(int, string);
+    callback settings-open-config();
+    callback settings-save();
+    /// Esc or ←: Rust warns once about unsaved changes, then leaves.
+    callback settings-back();
+    // Pressing on the drag zone (around the search box, the actions header): move the window.
+    callback start-drag();
+
+    public function focus-input() {
+        input.focus();
+    }
+
+    // The settings page keeps the keys (Esc, Ctrl+S, Tab) while none of its fields has focus.
+    public function focus-page() {
+        scope.focus();
+    }
+
+    public function select-all() {
+        input.select-all();
+    }
+
+    // Replace the search text and put the cursor at its end (used to complete commands).
+    // Keep the newest output in view unless the user scrolled up.
+    out property <bool> output-follow: true;
+    function scroll-output(delta: length) {
+        flick.content-y = max(min(0px, flick.height - flick.content-height), min(0px, flick.content-y + delta));
+    }
+
+    // A new answer starts at the newest text, even if the last one was scrolled up.
+    public function follow-output() {
+        root.output-follow = true;
+        flick.content-y = min(0px, flick.height - flick.content-height);
+    }
+
+    // Ctrl+C: one step back, never closing the window (Esc closes). Closes the menu, else stops
+    // a streaming answer, else clears what was typed, else leaves the answer panel.
+    function step-back() {
+        if root.menu-open {
+            root.menu-open = false;
+        } else if root.output-open && root.output-status == 0 {
+            root.output-stop();
+        } else if root.query != "" && (!root.output-open || root.output-input) {
+            root.query = "";
+            if !root.output-open {
+                root.selected = 0;
+                root.query-changed("");
+            }
+        } else if root.output-open {
+            root.output-back();
+        }
+    }
+
+    public function complete(text: string) {
+        root.menu-open = false;
+        root.query = text;
+        input.set-selection-offsets(text.character-count, text.character-count);
+    }
+
+    Rectangle {
+        background: Theme.bg;
+        border-radius: Theme.corner-radius;
+        border-width: 1px;
+        border-color: Theme.border;
+        clip: true;
+
+        scope := FocusScope {
+            capture-key-pressed(e) => {
+                // The settings page: its fields take the keys (Tab moves between them).
+                if root.settings-open {
+                    if e.text == Key.Escape {
+                        root.settings-back();
+                        return accept;
+                    }
+                    if e.modifiers.control && (e.text == "s" || e.text == "S") {
+                        root.settings-save();
+                        return accept;
+                    }
+                    return reject;
+                }
+                // Esc closes the window from anywhere (an open answer comes back on reopen).
+                if e.text == Key.Escape {
+                    root.dismiss();
+                    return accept;
+                }
+                if e.modifiers.control && !e.modifiers.alt && (e.text == "c" || e.text == "C") {
+                    // Selected text is copied as usual.
+                    if (input.has-focus && input.cursor-position-byte-offset != input.anchor-position-byte-offset)
+                        || (out-text.has-focus && out-text.cursor-position-byte-offset != out-text.anchor-position-byte-offset) {
+                        return reject;
+                    }
+                    root.step-back();
+                    return accept;
+                }
+                if root.output-open && !root.menu-open {
+                    if e.text == Key.LeftArrow && root.query == "" {
+                        root.output-back();
+                        return accept;
+                    }
+                    if e.text == Key.Return {
+                        if root.output-input && root.query != "" {
+                            root.output-send(root.query);
+                        } else {
+                            root.output-action(-1);
+                        }
+                        return accept;
+                    }
+                    if e.text == Key.Tab {
+                        root.output-menu();
+                        return accept;
+                    }
+                    if e.text == Key.DownArrow {
+                        root.scroll-output(-40px);
+                        return accept;
+                    }
+                    if e.text == Key.UpArrow {
+                        root.scroll-output(40px);
+                        return accept;
+                    }
+                    if e.text == Key.PageDown {
+                        root.scroll-output(-flick.height + 20px);
+                        return accept;
+                    }
+                    if e.text == Key.PageUp {
+                        root.scroll-output(flick.height - 20px);
+                        return accept;
+                    }
+                    // Typing goes to the search box: the follow-up input if there is one, else an
+                    // edit that goes back to the results (see `edited`).
+                    return reject;
+                }
+                if root.menu-open {
+                    if e.text == Key.Tab || e.text == Key.LeftArrow {
+                        root.menu-open = false;
+                        return accept;
+                    }
+                    if e.text == Key.DownArrow {
+                        root.action-selected = min(root.action-selected + 1, root.actions.length - 1);
+                        return accept;
+                    }
+                    if e.text == Key.UpArrow {
+                        root.action-selected = max(root.action-selected - 1, 0);
+                        return accept;
+                    }
+                    if e.text == Key.Return {
+                        if root.output-open {
+                            root.output-action(root.action-selected);
+                        } else {
+                            root.run-action(root.selected, root.action-selected);
+                        }
+                        return accept;
+                    }
+                    // Swallow typing while the menu is open so the query cannot change underneath it.
+                    return accept;
+                }
+                if e.text == Key.Tab {
+                    if root.items.length > 0 {
+                        root.open-menu(root.selected);
+                    }
+                    return accept;
+                }
+                if e.text == Key.DownArrow {
+                    root.selected = min(root.selected + 1, root.items.length - 1);
+                    return accept;
+                }
+                if e.text == Key.UpArrow {
+                    root.selected = max(root.selected - 1, 0);
+                    return accept;
+                }
+                if e.text == Key.Return {
+                    root.activate(root.selected);
+                    return accept;
+                }
+                reject
+            }
+
+            VerticalLayout {
+                // Search box.
+                Rectangle {
+                    height: root.input-h;
+                    // Behind the text field, so clicks in the field still place the caret.
+                    TouchArea {
+                        mouse-cursor: MouseCursor.move;
+                        pointer-event(e) => {
+                            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                root.start-drag();
+                            }
+                        }
+                    }
+
+                    // The text field fills the bar (minus the margins and the grip), so a click
+                    // anywhere in the bar that looks like the field places the caret.
+                    // Back to the results from the output panel.
+                    if root.output-open || root.settings-open: Text {
+                        x: 18px;
+                        width: 24px;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        font-size: 21px;
+                        color: back-ta.has-hover ? Theme.text : Theme.muted;
+                        text: "←";
+                        back-ta := TouchArea {
+                            clicked => {
+                                if root.settings-open {
+                                    root.settings-back();
+                                } else {
+                                    root.output-back();
+                                }
+                            }
+                        }
+                    }
+
+                    if root.settings-open: Text {
+                        x: 48px;
+                        width: parent.width - self.x - 52px;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        font-size: 19px;
+                        color: Theme.text;
+                        text: root.settings-title;
+                        overflow: elide;
+                    }
+
+                    // Clipped box the text scrolls inside, so the caret stays visible on long input.
+                    Rectangle {
+                        visible: !root.settings-open;
+                        x: root.output-open ? 48px : 24px;
+                        width: parent.width - self.x - (root.busy ? 80px : 52px);
+                        height: parent.height;
+                        clip: true;
+
+                        input := TextInput {
+                            // Scroll offset, moved just enough to keep the caret in view (as Slint's LineEdit).
+                            property <length> computed-x;
+                            enabled: !root.settings-open;
+                            x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.computed-x));
+                            y: 0px;
+                            width: max(parent.width - self.text-cursor-width, self.preferred-width);
+                            height: parent.height;
+                            single-line: true;
+                            vertical-alignment: center;
+                            cursor-position-changed(pos) => {
+                                if pos.x + self.computed-x < 4px {
+                                    self.computed-x = -pos.x + 4px;
+                                } else if pos.x + self.computed-x > parent.width - 4px - self.text-cursor-width {
+                                    self.computed-x = parent.width - pos.x - 4px - self.text-cursor-width;
+                                }
+                            }
+                            font-size: 21px;
+                            color: Theme.text;
+                            selection-background-color: Theme.accent;
+                            selection-foreground-color: #ffffff;
+                            text <=> root.query;
+                            edited => {
+                                // A follow-up input holds text for the plugin, not a search.
+                                if root.output-open && root.output-input {
+                                    return;
+                                }
+                                // Editing the command under a panel leaves the panel for the results.
+                                if root.output-open {
+                                    let text = self.text;
+                                    let caret = self.cursor-position-byte-offset;
+                                    root.output-back();
+                                    root.query = text;
+                                    self.set-selection-offsets(caret, caret);
+                                }
+                                root.selected = 0;
+                                root.menu-open = false;
+                                root.query-changed(self.text);
+                            }
+                        }
+                    }
+
+                    // Grip: the visible handle for dragging the window.
+                    Rectangle {
+                        x: parent.width - 36px;
+                        y: (parent.height - self.height) / 2;
+                        width: 10px;
+                        height: 17px;
+                        for dot[n] in 6: Rectangle {
+                            x: Math.mod(n, 2) * 7px;
+                            y: Math.floor(n / 2) * 7px;
+                            width: 3px;
+                            height: 3px;
+                            border-radius: 1.5px;
+                            background: Theme.placeholder;
+                        }
+                    }
+
+                    // Spinner while an action runs: dots in a circle, the bright one going round.
+                    // Only exists while busy, so it costs nothing otherwise.
+                    if root.busy: Rectangle {
+                        property <int> step: Math.mod(animation-tick() / 90ms, 8);
+                        x: parent.width - 66px;
+                        y: (parent.height - self.height) / 2;
+                        width: 18px;
+                        height: 18px;
+                        for n in 8: Rectangle {
+                            x: parent.width / 2 - 1.5px + 7px * Math.cos(n * 45deg - 90deg);
+                            y: parent.height / 2 - 1.5px + 7px * Math.sin(n * 45deg - 90deg);
+                            width: 3px;
+                            height: 3px;
+                            border-radius: 1.5px;
+                            background: Theme.accent;
+                            opacity: 1 - Math.mod(step - n + 8, 8) / 9;
+                        }
+                    }
+
+                    Text {
+                        x: root.output-open ? 48px : 24px;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        font-size: 21px;
+                        color: Theme.placeholder;
+                        text: root.output-open ? root.output-placeholder : "Search apps, commands, math…";
+                        visible: root.query == "" && !root.settings-open;
+                    }
+
+                    // Progress cue while a slow (remote) plugin is still answering.
+                    Rectangle {
+                        y: parent.height - 2px;
+                        width: parent.width;
+                        height: 2px;
+                        clip: true;
+                        visible: root.searching;
+                        Rectangle {
+                            width: parent.width * 0.25;
+                            background: Theme.accent;
+                            x: root.searching ? parent.width * 0.75 : 0px;
+                            animate x { duration: 800ms; easing: ease-in-out; iteration-count: -1; direction: alternate; }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: root.list-visible ? 1px : 0px;
+                    background: Theme.divider;
+                }
+
+                Rectangle {
+                    height: root.list-visible ? root.list-pad : 0px;
+                }
+
+                // Results.
+                for item[i] in root.items: Rectangle {
+                    visible: !root.menu-open && !root.busy && !root.output-open && !root.settings-open;
+                    height: root.menu-open || root.busy || root.output-open || root.settings-open ? 0px : root.row-h;
+                    opacity: item.fresh ? 0 : 1;
+                    animate opacity { duration: 100ms; easing: ease-out; }
+
+                    Rectangle {
+                        x: 8px;
+                        y: 2px;
+                        width: parent.width - 16px;
+                        height: parent.height - 4px;
+                        border-radius: 10px;
+                        background: i == root.selected ? Theme.selection : (ta.has-hover ? Theme.hover : transparent);
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 14px;
+                            spacing: 12px;
+
+                            Rectangle {
+                                width: 32px;
+                                if item.has-icon: Image {
+                                    x: 0px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 32px;
+                                    height: 32px;
+                                    source: item.icon;
+                                    image-fit: contain;
+                                }
+                                if !item.has-icon: Rectangle {
+                                    x: 0px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 32px;
+                                    height: 32px;
+                                    border-radius: 9px;
+                                    background: Theme.tile;
+                                    Text {
+                                        text: item.glyph;
+                                        color: Theme.accent;
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 1px;
+                                Text {
+                                    text: item.title;
+                                    color: Theme.text;
+                                    font-size: 15px;
+                                    overflow: elide;
+                                }
+
+                                if item.subtitle != "": Text {
+                                    text: item.subtitle;
+                                    color: Theme.muted;
+                                    font-size: 14px;
+                                    overflow: elide;
+                                }
+                            }
+
+                            Text {
+                                width: 18px;
+                                text: i == root.selected ? "↵" : "";
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                                horizontal-alignment: right;
+                            }
+                        }
+                    }
+
+                    ta := TouchArea {
+                        clicked => {
+                            root.activate(i);
+                        }
+                    }
+                }
+
+                // Output panel: the text of an action's result, scrolling once it is tall.
+                if root.panel-visible: Rectangle {
+                    height: 1px;
+                    background: Theme.divider;
+                }
+                // Always present (ids inside an `if` are out of reach); zero height when hidden.
+                Rectangle {
+                    visible: root.panel-visible;
+                    height: root.panel-visible ? root.output-h : 0px;
+                    VerticalLayout {
+                        padding: root.output-pad;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 0px;
+                        if root.output-title != "": Text {
+                            height: 22px;
+                            text: root.output-title;
+                            color: Theme.muted;
+                            font-size: 14px;
+                            overflow: elide;
+                        }
+                        flick := Flickable {
+                            content-height: max(self.height, root.out-body-h);
+                            // `changed` runs after layout, so the newest line is the one in view.
+                            changed content-height => {
+                                if root.output-follow {
+                                    self.content-y = min(0px, self.height - self.content-height);
+                                }
+                            }
+                            // Not `flicked`: a wheel scroll fires it before its animation moves.
+                            changed content-y => {
+                                root.output-follow = self.content-y <= self.height - self.content-height + 1px;
+                            }
+                            out-text := TextInput {
+                                width: flick.width;
+                                visible: !root.output-markdown;
+                                read-only: true;
+                                wrap: word-wrap;
+                                font-size: 15px;
+                                color: Theme.text;
+                                selection-background-color: Theme.accent;
+                                selection-foreground-color: #ffffff;
+                                text: root.output-text;
+                            }
+                            out-styled := StyledText {
+                                width: flick.width;
+                                visible: root.output-markdown;
+                                default-font-size: 15px;
+                                default-color: Theme.text;
+                                link-color: Theme.accent;
+                                text: root.output-styled;
+                                link-clicked(url) => {
+                                    root.output-link(url);
+                                }
+                            }
+                        }
+                    }
+                }
+                if root.panel-visible: Rectangle {
+                    height: 1px;
+                    background: Theme.divider;
+                }
+                if root.panel-visible: Rectangle {
+                    height: root.footer-h;
+                    background: Theme.header;
+                    HorizontalLayout {
+                        padding-left: 24px;
+                        padding-right: 18px;
+                        spacing: 8px;
+                        if root.output-status == 0: Rectangle {
+                            property <int> step: Math.mod(animation-tick() / 90ms, 8);
+                            width: 14px;
+                            for n in 8: Rectangle {
+                                x: parent.width / 2 - 1px + 5px * Math.cos(n * 45deg - 90deg);
+                                y: parent.height / 2 - 1px + 5px * Math.sin(n * 45deg - 90deg);
+                                width: 2px;
+                                height: 2px;
+                                border-radius: 1px;
+                                background: Theme.accent;
+                                opacity: 1 - Math.mod(step - n + 8, 8) / 9;
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            overflow: elide;
+                            color: root.output-status == 2 ? Theme.error : Theme.muted;
+                            text: root.output-status == 0 ? "Working…" : root.output-status == 1 ? "Done" : root.output-message;
+                        }
+                        Text {
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.muted;
+                            text: "↵ " + (root.output-input && root.query != "" ? "Send" : root.output-enter) + "    Tab Actions    Ctrl+C " + (root.output-status == 0 ? "Stop" : "Back");
+                        }
+                    }
+                }
+
+                // Settings page. Always present (its height is read above); empty when closed.
+                if root.settings-open: Rectangle {
+                    height: 1px;
+                    background: Theme.divider;
+                }
+                settings := SettingsPanel {
+                    visible: root.settings-open;
+                    height: root.settings-open ? self.wanted-height : 0px;
+                    max-body-height: 2 * root.list-pad + 8 * root.row-h - root.footer-h - 1px;
+                    footer-height: root.footer-h;
+                    fields: root.settings-fields;
+                    autofocus: root.settings-autofocus;
+                    status: root.settings-status;
+                    status-error: root.settings-status-error;
+                    dirty-count: root.settings-dirty;
+                    edited(i, t) => {
+                        root.settings-edited(i, t);
+                    }
+                    reset(i) => {
+                        root.settings-reset(i);
+                    }
+                    item-add(i, n, v) => {
+                        root.settings-item-add(i, n, v);
+                    }
+                    item-remove(i, n) => {
+                        root.settings-item-remove(i, n);
+                    }
+                    entry-open(i, n) => {
+                        root.settings-entry-open(i, n);
+                    }
+                    open-config => {
+                        root.settings-open-config();
+                    }
+                    save => {
+                        root.settings-save();
+                    }
+                }
+
+                // Actions menu: header with the selected result, then its actions.
+                if root.menu-open && !root.busy: Rectangle {
+                    height: root.row-h;
+                    Rectangle {
+                        x: 8px;
+                        y: 2px;
+                        width: parent.width - 16px;
+                        height: parent.height - 4px;
+                        border-radius: 10px;
+                        background: Theme.header;
+                        TouchArea {
+                            mouse-cursor: MouseCursor.move;
+                            pointer-event(e) => {
+                                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                    root.start-drag();
+                                }
+                            }
+                        }
+
+                        Text {
+                            x: 14px;
+                            width: parent.width - 28px;
+                            text: "Actions for " + (root.output-open ? (root.output-title != "" ? root.output-title : "output") : root.items[root.selected].title);
+                            color: Theme.muted;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+
+                for action[i] in root.actions: Rectangle {
+                    visible: root.menu-open && !root.busy;
+                    height: root.menu-open && !root.busy ? root.row-h : 0px;
+
+                    Rectangle {
+                        x: 8px;
+                        y: 2px;
+                        width: parent.width - 16px;
+                        height: parent.height - 4px;
+                        border-radius: 10px;
+                        background: i == root.action-selected ? Theme.selection : (action-ta.has-hover ? Theme.hover : transparent);
+
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 12px;
+                            Text {
+                                text: action.title;
+                                color: Theme.text;
+                                font-size: 15px;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: action.is-default ? "↵" : "";
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    action-ta := TouchArea {
+                        clicked => {
+                            if root.output-open {
+                                root.output-action(i);
+                            } else {
+                                root.run-action(root.selected, i);
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: root.list-visible ? root.list-pad : 0px;
+                }
+            }
+        }
+    }
+}

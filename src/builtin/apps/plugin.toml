@@ -1,0 +1,8 @@
+id = "builtin-apps"
+name = "Applications"
+version = "0.1.0"
+description = "Launch installed applications (.desktop files on Linux, Start Menu shortcuts on Windows)."
+
+[query]
+global = true
+timeout_ms = 150

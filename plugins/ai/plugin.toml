@@ -1,0 +1,132 @@
+id = "ai"
+name = "AI"
+version = "0.1.0"
+description = "Ask an AI (Anthropic or any OpenAI-compatible API): `ai <question>`, with follow-ups."
+
+[run]
+mode = "on-demand"
+# Conversations live in the plugin process; keep them a while after the launcher hides.
+idle_timeout_s = 600
+
+[run.exec]
+windows = ["./kairos-ai.exe"]
+linux = ["./kairos-ai"]
+macos = ["./kairos-ai"]
+
+[query]
+triggers = ["ai "]
+# Plain searches get a last "Ask AI: …" row (nothing is sent until it is chosen).
+global = true
+timeout_ms = 150
+
+[[settings]]
+key = "api"
+type = "choice"
+label = "API type"
+description = "anthropic (Claude) or openai (OpenAI and compatible servers such as Ollama or LM Studio)"
+options = ["", "anthropic", "openai"]
+default = ""
+required = true
+
+[[settings]]
+key = "base_url"
+type = "string"
+label = "Base URL"
+description = "e.g. https://api.anthropic.com, https://api.openai.com/v1, http://localhost:11434/v1"
+placeholder = "https://api.anthropic.com"
+default = ""
+required = true
+
+[[settings]]
+key = "model"
+type = "string"
+label = "Model"
+description = "Model id, e.g. claude-opus-5-5, gpt-5, llama3.2"
+placeholder = "claude-opus-5-5"
+default = ""
+required = true
+
+[[settings]]
+key = "api_key"
+type = "secret"
+label = "API key"
+description = "Required for anthropic; optional for openai-compatible servers"
+
+[[settings]]
+key = "system_prompt"
+type = "string"
+label = "System prompt"
+description = "Empty: answer briefly, in plain text"
+default = ""
+
+[[settings]]
+key = "effort"
+type = "choice"
+label = "Effort"
+description = "anthropic only; empty: the model's default"
+options = ["", "low", "medium", "high", "xhigh", "max"]
+default = ""
+
+[[settings]]
+key = "max_tokens"
+type = "number"
+label = "Max tokens"
+description = "Longest answer; 0: 16000 for anthropic, the server's default for openai"
+default = 0
+
+[[settings]]
+key = "secrets"
+type = "secrets"
+label = "Secrets"
+description = "tokens for MCP servers, used as ${name} in their env and headers"
+
+[[settings]]
+key = "mcp_servers"
+type = "table"
+label = "MCP servers"
+description = "tools the AI may use; a tool not allowed asks before it runs; paste Claude's MCP JSON to add servers"
+import = "mcp"
+default = {}
+example = '''
+[plugins.ai.mcp_servers.files]                  # tools appear as files.<tool>
+command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes"]
+env = { LOG_LEVEL = "warn" }                    # optional, added to the environment
+allow = ["read_text_file", "list_directory"]    # optional: run without asking ("*" = all)
+
+[plugins.ai.mcp_servers.github]
+url = "https://api.githubcopilot.com/mcp/"      # https://, or http:// on this machine
+headers = { Authorization = "Bearer ${github_token}" }  # plugin set ai secrets github_token <token>
+'''
+
+[[settings.fields]]
+key = "command"
+type = "list"
+label = "Command"
+description = "a local server: the program, then its arguments"
+default = []
+
+[[settings.fields]]
+key = "url"
+type = "string"
+label = "URL"
+description = "or a remote server: https://, or http:// on this machine; without an Authorization header you sign in in the browser if it asks"
+placeholder = "https://api.githubcopilot.com/mcp/"
+
+[[settings.fields]]
+key = "env"
+type = "table"
+label = "Environment"
+description = "added to a local server's environment; ${name} uses a secret"
+
+[[settings.fields]]
+key = "headers"
+type = "table"
+label = "Headers"
+description = "sent to a remote server, e.g. Authorization = Bearer ${github_token}"
+
+[[settings.fields]]
+key = "allow"
+type = "list"
+label = "Allowed tools"
+description = "run without asking; * allows all"
+default = []

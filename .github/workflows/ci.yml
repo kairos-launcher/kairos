@@ -1,0 +1,89 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: [docs/**, .github/workflows/docs.yml]
+  pull_request:
+    paths-ignore: [docs/**, .github/workflows/docs.yml]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail Python-backed plugin tests instead of skipping them (see src/test_support.rs).
+  CI: "true"
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo fmt --all --check
+      - run: cargo fmt --manifest-path plugins/calc/Cargo.toml --check
+      - run: cargo fmt --manifest-path plugins/ai/Cargo.toml --check
+      - run: cargo fmt --manifest-path plugins/bookmarks/Cargo.toml --check
+      - run: cargo fmt --manifest-path plugins/emoji/Cargo.toml --check
+      - run: cargo fmt --manifest-path plugins/timer/Cargo.toml --check
+      - run: cargo fmt --manifest-path plugins/devtools/Cargo.toml --check
+      - run: cargo fmt --manifest-path examples/plugins/echo-rs/Cargo.toml --check
+      - run: test -z "$(gofmt -l examples/plugins/echo-go)"
+
+  lint-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --all-targets --no-default-features -- -D warnings
+      - run: cargo test
+      - run: cargo test --no-default-features
+      - name: Shipped and example plugins build
+        run: |
+          cargo build --manifest-path plugins/calc/Cargo.toml
+          cargo build --manifest-path plugins/ai/Cargo.toml
+          cargo test --manifest-path plugins/bookmarks/Cargo.toml
+          cargo test --manifest-path plugins/emoji/Cargo.toml
+          cargo test --manifest-path plugins/timer/Cargo.toml
+          cargo test --manifest-path plugins/devtools/Cargo.toml
+          cargo build --manifest-path examples/plugins/echo-rs/Cargo.toml
+          go -C examples/plugins/echo-go vet ./...
+          go -C examples/plugins/echo-go build
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo doc --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  msrv:
+    runs-on: ubuntu-latest
+    env:
+      # Overrides rust-toolchain.toml; keep in sync with rust-version in Cargo.toml.
+      RUSTUP_TOOLCHAIN: "1.92.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+      - uses: dtolnay/rust-toolchain@3da603d4464771f1a8c3dd4acb41f03bc8107551 # installs RUSTUP_TOOLCHAIN above
+        with: { toolchain: "1.92.0" }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo check --all-targets
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check advisories bans licenses sources

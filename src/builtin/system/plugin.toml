@@ -1,0 +1,15 @@
+id = "builtin-system"
+name = "System"
+version = "0.1.0"
+description = "Lock, sleep, log out, restart, shut down, empty the trash."
+
+[query]
+triggers = ["sys "]
+global = true
+
+[[settings]]
+key = "confirm"
+type = "bool"
+label = "Confirm"
+description = "ask before logging out, restarting, shutting down or emptying the trash"
+default = true

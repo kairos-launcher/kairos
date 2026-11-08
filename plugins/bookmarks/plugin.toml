@@ -1,0 +1,25 @@
+id = "bookmarks"
+name = "Bookmarks"
+version = "0.1.0"
+description = "Browser bookmarks in plain searches, or only bookmarks with `bm github`. Firefox, Chrome, Chromium, Brave, Edge, Vivaldi."
+
+[run]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[run.exec]
+windows = ["./kairos-bookmarks.exe"]
+linux = ["./kairos-bookmarks"]
+macos = ["./kairos-bookmarks"]
+
+[query]
+triggers = ["bm "]
+global = true
+timeout_ms = 150
+
+[[settings]]
+key = "history"
+type = "bool"
+label = "History"
+description = "also offer pages from the browsing history (the most visited ones)"
+default = false

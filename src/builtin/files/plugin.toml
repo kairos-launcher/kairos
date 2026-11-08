@@ -1,0 +1,43 @@
+id = "builtin-files"
+name = "Files"
+version = "0.1.0"
+description = "Find files and folders: `f report`, `f proj/notes`, or browse with `f ~/Documents/`."
+
+[query]
+triggers = ["f "]
+global = false
+
+[[settings]]
+key = "roots"
+type = "list"
+label = "Folders"
+description = "where to look"
+default = ["~"]
+
+[[settings]]
+key = "excludes"
+type = "list"
+label = "Skip"
+description = "folder names never entered"
+default = ["node_modules", "target", ".git", ".cache", "__pycache__", ".venv", "venv", "build", "dist", "snap"]
+
+[[settings]]
+key = "hidden"
+type = "bool"
+label = "Hidden files"
+description = "include names starting with a dot"
+default = false
+
+[[settings]]
+key = "max_depth"
+type = "number"
+label = "Depth"
+description = "how many folder levels below each root"
+default = 8
+
+[[settings]]
+key = "max_entries"
+type = "number"
+label = "Limit"
+description = "stop indexing after this many entries"
+default = 100000

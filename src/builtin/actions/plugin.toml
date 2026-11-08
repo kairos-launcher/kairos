@@ -1,0 +1,78 @@
+id = "builtin-actions"
+name = "Custom actions"
+version = "0.1.0"
+description = "Your own keyword commands from config.toml, e.g. `gh rust-lang/rust`."
+
+[query]
+# One trigger per action that takes a parameter, generated from the `actions` setting.
+triggers = []
+global = true
+
+[[settings]]
+key = "actions"
+type = "table"
+label = "Actions"
+description = "your keyword commands; the name is the keyword you type"
+default = {}
+example = '''
+[plugins.builtin-actions.actions.gh]            # type `gh owner/repo`
+title = "GitHub repository"                     # optional
+command = "xdg-open https://github.com/{}"
+
+[plugins.builtin-actions.actions.downloads]     # no placeholder: runs on the keyword alone
+command = "xdg-open ~/Downloads"
+
+[plugins.builtin-actions.actions.logs]
+command = "journalctl -f -u {1}"
+terminal = true                                 # run in a terminal window
+# shell = true                                  # run through sh -c (pipes, &&, $VARS)
+# default = "nginx"                             # used when nothing is typed
+# icon = "utilities-system-monitor"             # theme icon name or image path
+'''
+
+[[settings.fields]]
+key = "command"
+type = "string"
+label = "Command"
+description = "{} (or {0}) is what you type after the keyword, {url} the same URL-encoded, {1}..{9} single words"
+placeholder = "xdg-open https://github.com/{}"
+required = true
+
+[[settings.fields]]
+key = "title"
+type = "string"
+label = "Title"
+description = "shown in the list; empty = the keyword"
+
+[[settings.fields]]
+key = "default"
+type = "string"
+label = "Default"
+description = "used when nothing is typed after the keyword"
+
+[[settings.fields]]
+key = "terminal"
+type = "bool"
+label = "Run in a terminal"
+default = false
+
+[[settings.fields]]
+key = "shell"
+type = "bool"
+label = "Run through the shell"
+description = "sh -c: pipes, &&, $VARS; what you type is quoted"
+default = false
+
+[[settings.fields]]
+key = "icon"
+type = "string"
+label = "Icon"
+description = "theme icon name or image path"
+placeholder = "utilities-system-monitor"
+
+[[settings]]
+key = "terminal"
+type = "string"
+label = "Terminal"
+description = "terminal command for actions run in a terminal, e.g. \"kitty\"; empty = detect"
+default = ""

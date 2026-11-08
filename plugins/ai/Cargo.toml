@@ -1,0 +1,33 @@
+[package]
+name = "ai"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "AI plugin for the launcher: Anthropic or OpenAI-compatible chat, streamed (JSON-RPC stdio)."
+
+# Windows flags a generic `ai.exe` (same name as a system tool) as suspicious; keep it unique.
+[[bin]]
+name = "kairos-ai"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.23"
+# Already used by rustls (ureq): PKCE's SHA-256 and random numbers for OAuth sign-in.
+ring = "0.17.14"
+serde_json = "1"
+ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier", "socks-proxy"] }
+
+[build-dependencies]
+# Version info and icon in the exe's resources (also when cross-building from Linux via MinGW).
+winresource = { version = "0.1", default-features = false }
+
+# Built on its own, not as part of the launcher's crate.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

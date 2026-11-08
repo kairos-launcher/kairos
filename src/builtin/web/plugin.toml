@@ -1,0 +1,43 @@
+id = "builtin-web"
+name = "Web Search"
+version = "0.1.0"
+description = "Search the web (`web rust`, `g rust`, `w rust`) and open typed URLs."
+
+[query]
+# `web ` plus one trigger per engine keyword, generated from the `engines` setting.
+triggers = ["web "]
+global = true
+
+[[settings]]
+key = "engine"
+type = "string"
+label = "Default engine"
+description = "keyword from `engines` used by `web ` and the fallback row"
+default = "ddg"
+
+[[settings]]
+key = "browser"
+type = "string"
+label = "Browser"
+description = "command to open pages with, e.g. \"firefox --private-window\"; empty = system default"
+default = ""
+
+[[settings]]
+key = "fallback"
+type = "bool"
+label = "Fallback"
+description = "offer a web search at the bottom of every plain search"
+default = true
+
+[[settings]]
+key = "engines"
+type = "table"
+label = "Search engines"
+description = "keyword = URL with {q} where the search text goes; the keyword plus a space searches it"
+
+[settings.default]
+ddg = "https://duckduckgo.com/?q={q}"
+g = "https://www.google.com/search?q={q}"
+w = "https://en.wikipedia.org/w/index.php?search={q}"
+gh = "https://github.com/search?q={q}"
+yt = "https://www.youtube.com/results?search_query={q}"

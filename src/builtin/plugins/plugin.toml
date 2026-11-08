@@ -1,0 +1,8 @@
+id = "builtin-plugins"
+name = "Plugins"
+version = "0.1.0"
+description = "Manage plugins: enable, disable, configure, install, uninstall."
+
+[query]
+triggers = ["plugin "]
+global = false

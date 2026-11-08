@@ -1,0 +1,50 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Keep in step with winit, arboard, global-hotkey and the vendored softbuffer;
+      # bumping alone links a second x11rb.
+      - dependency-name: x11rb
+    groups:
+      slint:
+        patterns: ["slint*", "i-slint-*"]
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: /plugins/calc
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /plugins/ai
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /plugins/bookmarks
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /plugins/emoji
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /plugins/devtools
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /plugins/timer
+    schedule:
+      interval: monthly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: monthly

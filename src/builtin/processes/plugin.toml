@@ -1,0 +1,8 @@
+id = "builtin-processes"
+name = "Processes"
+version = "0.1.0"
+description = "Find and terminate your own running processes: `kill fire`, `kill 1234`, or just `kill` for the top memory users."
+
+[query]
+triggers = ["kill "]
+global = false

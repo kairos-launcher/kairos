@@ -1,0 +1,38 @@
+# Rust build output (root, plugins, examples)
+target/
+**/*.rs.bk
+*.pdb
+
+# Packaged release output (scripts/dist.sh, Inno Setup)
+dist/
+packaging/Output/
+
+# Example plugin binaries built in place
+examples/plugins/echo-rs/echo-rs
+examples/plugins/echo-rs/echo-rs.exe
+examples/plugins/echo-go/echo-go
+examples/plugins/echo-go/echo-go.exe
+
+# Script plugin caches
+__pycache__/
+*.pyc
+node_modules/
+
+# IDEs and editors
+.idea/
+*.iml
+.vscode/
+.fleet/
+.zed/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+/vendor/*/Cargo.lock
+
+# Docs site (VitePress)
+docs/.vitepress/cache/
+docs/.vitepress/dist/

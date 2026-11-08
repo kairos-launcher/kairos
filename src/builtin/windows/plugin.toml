@@ -1,0 +1,9 @@
+id = "builtin-windows"
+name = "Windows"
+version = "0.1.0"
+description = "Switch to or close open windows: `win firefox`. GNOME needs the Window Calls extension, X11 needs wmctrl."
+
+[query]
+triggers = ["win "]
+global = true
+timeout_ms = 150

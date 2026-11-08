@@ -1,0 +1,28 @@
+id = "builtin-scripts"
+name = "Script commands"
+version = "0.1.0"
+description = "Your scripts as commands: `scripts create <name>` makes one, or put a script with a `@kairos.title` comment into the scripts folder (Raycast script commands work too)."
+
+[query]
+global = true
+
+[[settings]]
+key = "folders"
+type = "list"
+label = "Folders"
+description = "more folders with scripts; <config>/scripts is always used"
+default = []
+
+[[settings]]
+key = "editor"
+label = "Editor"
+type = "string"
+description = "command that edits scripts, e.g. \"code\" or \"gnome-text-editor\"; empty = the default app (Notepad on Windows)"
+default = ""
+
+[[settings]]
+key = "terminal"
+type = "string"
+label = "Terminal"
+description = "terminal command for `@kairos.mode terminal`, e.g. \"kitty\"; empty = detect"
+default = ""
