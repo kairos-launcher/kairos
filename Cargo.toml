@@ -16,7 +16,7 @@ base64 = "0.23"
 # Already built for Slint's StyledText; used to rewrite answers into the markdown it accepts.
 pulldown-cmark = { version = "0.13", default-features = false }
 # Already built for Slint; draws SVG-only theme icons once into a bitmap.
-resvg = { version = "0.48", default-features = false }
+resvg = { version = "0.49", default-features = false }
 dirs = "7"
 global-hotkey = "0.9.0"
 log = "0.4"
