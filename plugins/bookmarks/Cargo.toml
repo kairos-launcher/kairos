@@ -14,7 +14,7 @@ path = "src/main.rs"
 serde_json = "1"
 # SQLite for Firefox's places.sqlite; bundled so nothing needs to be installed. External plugin,
 # so it costs the launcher no memory.
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.42", features = ["bundled"] }
 
 [build-dependencies]
 winresource = { version = "0.1", default-features = false }
