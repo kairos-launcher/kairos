@@ -107,10 +107,14 @@ pub struct PendingSave {
 }
 
 impl PendingSave {
+    pub(crate) fn new(path: PathBuf, json: String) -> Self {
+        Self { path, json }
+    }
+
     pub fn write(self) {
         // Keys can contain typed text (shell commands, searches), so the file is private.
         if let Err(e) = crate::core::fs::write_private(&self.path, self.json.as_bytes()) {
-            log::warn!("frecency: {}: {e}", self.path.display());
+            log::warn!("history: {}: {e}", self.path.display());
         }
     }
 }

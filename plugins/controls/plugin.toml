@@ -1,0 +1,35 @@
+id = "controls"
+name = "Controls"
+version = "0.1.0"
+description = "Media playback, volume, Wi-Fi, Bluetooth, dark mode, brightness and Do Not Disturb: `pause`, `vol 40`, `wifi off`, `dnd 30m`."
+
+[run]
+mode = "on-demand"
+idle_timeout_s = 30
+
+[run.exec]
+windows = ["./kairos-controls.exe"]
+linux = ["./kairos-controls"]
+macos = ["./kairos-controls"]
+
+[query]
+triggers = ["media ", "toggle "]
+# `pause`, `next`, `mute`, `wifi off`, `dark`, `dnd 30m` work as plain searches too.
+global = true
+# A query waits at most 100 ms for the system; the rest is the process start.
+timeout_ms = 250
+
+[[settings]]
+key = "player"
+type = "string"
+label = "Preferred player"
+description = "what `pause` and `next` control when several players run, e.g. `spotify`. Empty: the one playing"
+placeholder = "spotify"
+default = ""
+
+[[settings]]
+key = "volume_step"
+type = "number"
+label = "Step"
+description = "percent that `vol up`, `vol down`, `bright up` and `bright down` change"
+default = 5

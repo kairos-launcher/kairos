@@ -168,6 +168,10 @@ pub struct Setting {
     /// Claude or VS Code write it) is converted into entries (`crate::plugin::import`).
     #[serde(default)]
     pub import: Option<String>,
+    /// Heading the settings page shows above this setting when it differs from the previous
+    /// setting's (empty: none). Groups a long page into parts.
+    #[serde(default)]
+    pub section: String,
 }
 
 /// The `type` of a setting.
@@ -821,6 +825,7 @@ name = "a"
             required: false,
             fields: vec![],
             import: None,
+            section: String::new(),
         }
     }
 

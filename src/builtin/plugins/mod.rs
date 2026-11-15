@@ -20,7 +20,7 @@ use crate::plugin;
 use crate::plugin::manifest::{Manifest, Setting, SettingKind};
 use crate::plugin::{Error, ExecOutcome, Icon, Provider, Query, ResultItem};
 
-const ID: &str = "builtin-plugins";
+pub(crate) const ID: &str = "builtin-plugins";
 const TRIGGER: &str = "plugin ";
 const COMMANDS: [(&str, &str); 4] = [
     ("install ", "Install a plugin from a folder or a git URL"),
@@ -875,6 +875,7 @@ mod tests {
             plugins: root.join("plugins"),
             frecency: root.join("frecency.json"),
             picks: root.join("query_picks.json"),
+            recent: root.join("recent.json"),
             secrets: root.join("secrets"),
         };
         let engine = Engine::with_paths(&Config::default(), paths);

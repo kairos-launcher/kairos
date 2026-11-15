@@ -6,6 +6,7 @@
 //! UI thread lives in [`UiState`] (see `with_state`); the little that workers share is in
 //! [`Shared`].
 
+mod apply;
 mod markdown;
 mod model_sync;
 mod output;
@@ -17,17 +18,17 @@ mod tests;
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
+use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 #[cfg(all(unix, not(target_os = "macos")))]
 use winit::platform::startup_notify::WindowAttributesExtStartupNotify;
 
-use crate::config::{self, Config, Placement, ThemeMode};
+use crate::config::{Config, Placement, ThemeMode};
 use crate::core::sync::lock;
 use crate::drag::DragGuard;
 use crate::engine::{self, Engine};
@@ -112,13 +113,10 @@ pub fn run(cfg: &Config, background: bool) -> Result<(), String> {
         .map_err(|e| format!("cannot start the UI backend: {e}"))?;
     let ui = MainWindow::new().map_err(|e| format!("cannot create the window: {e}"))?;
     ui.set_app_icon(window_icon());
-    ui.global::<Theme>().set_mode(theme_mode_index(cfg.theme));
     if cfg!(windows) {
         ui.global::<Theme>().set_corner_radius(0.0);
     }
     with_state(|s| {
-        s.placement = cfg.position;
-        s.animations = cfg.animations;
         // Set by the desktop when it launched us; lets Wayland compositors focus the window.
         s.activation_token = std::env::var("XDG_ACTIVATION_TOKEN").ok().filter(|v| !v.is_empty());
     });
@@ -127,17 +125,12 @@ pub fn run(cfg: &Config, background: bool) -> Result<(), String> {
     app.refresh_system_theme();
     app.wire_callbacks(&ui);
 
-    // Global hotkey. Wayland forbids app-level key grabs; there the control socket is the
-    // trigger (`kairos --install-shortcut` binds it in the desktop). The manager must stay
-    // alive for the whole run.
-    let hotkey = if is_wayland() {
-        log::info!("Wayland: bind `kairos --toggle` to {} (see `kairos --install-shortcut`).", cfg.hotkey);
-        None
-    } else {
-        register_hotkey(&cfg.hotkey)
-    };
-    if let Some((_, id)) = &hotkey {
-        app.listen_for_hotkey(*id);
+    // Theme, monitor, global hotkey, tray icon (`apply.rs`), again whenever they change.
+    if !is_wayland() {
+        app.listen_for_hotkey();
+    }
+    for problem in app.apply_config(&ui, cfg) {
+        log::warn!("{problem}");
     }
 
     {
@@ -147,10 +140,6 @@ pub fn run(cfg: &Config, background: bool) -> Result<(), String> {
         }
     }
 
-    if cfg.tray {
-        app.spawn_tray();
-    }
-
     if background {
         app.prepare_hidden_window();
     } else {
@@ -158,7 +147,7 @@ pub fn run(cfg: &Config, background: bool) -> Result<(), String> {
     }
 
     let result = slint::run_event_loop_until_quit().map_err(|e| format!("event loop: {e}"));
-    drop(hotkey);
+    with_state(|s| s.hotkey = None);
     drop(server); // removes the socket file
     if let Some(argv) = lock(&AFTER_QUIT).take() {
         log::info!("starting {argv:?}");
@@ -204,6 +193,10 @@ struct UiState {
     output_timers: output::OutputTimers,
     /// Keeps the tray icon alive on the UI thread (Windows requires it to stay there).
     tray: Option<tray::TrayHandle>,
+    /// What `apply_config` applied last (see `apply.rs`).
+    applied: Option<apply::Applied>,
+    /// The global hotkey's manager (alive for the whole run) and the key it grabs.
+    hotkey: Option<apply::Hotkey>,
 }
 
 /// What was on screen when the launcher closed without running anything.
@@ -242,6 +235,8 @@ struct Shared {
     next_exec: AtomicU64,
     /// Output events on their way to the panel.
     output: Mutex<output::Inbox>,
+    /// Id of the global hotkey registered last (0: none).
+    hotkey_id: AtomicU32,
 }
 
 /// A cheap handle to everything the callbacks need. Clone it into closures.
@@ -256,6 +251,8 @@ impl App {
     fn wire_callbacks(&self, ui: &MainWindow) {
         let app = self.clone();
         ui.on_query_changed(move |text| app.search(text.to_string()));
+        let app = self.clone();
+        ui.on_show_recent(move || app.show_recent());
         let app = self.clone();
         ui.on_activate(move |row| app.activate(row, None));
         let app = self.clone();
@@ -286,6 +283,10 @@ impl App {
         ui.on_settings_entry_open(move |i, name| app.settings_entry_open(i, &name));
         let app = self.clone();
         ui.on_settings_open_config(move || app.settings_open_config());
+        let app = self.clone();
+        ui.on_settings_link_toggle(move |i, name| app.settings_link_toggle(i, &name));
+        let app = self.clone();
+        ui.on_settings_filter_edited(move |text| app.settings_filter(&text));
         let app = self.clone();
         ui.on_settings_save(move || app.save_settings());
         let app = self.clone();
@@ -332,6 +333,16 @@ impl App {
                 if let Some(q) = query {
                     self.open_with_query(q);
                 }
+            }
+            Command::Settings => {
+                if !visible {
+                    if token.is_some() {
+                        with_state(|s| s.activation_token = token);
+                    }
+                    self.show();
+                }
+                self.close_output();
+                self.open_general_settings(&ui);
             }
             Command::Hide => self.hide(),
             Command::Quit => {
@@ -393,11 +404,21 @@ impl App {
             self.search(query);
             ui.invoke_select_all();
         }
-        let engine = self.engine.clone();
+        let app = self.clone();
         std::thread::spawn(move || {
             // Edits to config.toml (by hand or from the plugin manager) apply on the next show.
-            engine.reload_if_config_changed();
-            engine.refresh_if_stale();
+            if app.engine.reload_if_config_changed() {
+                let cfg = Config::load_from(&app.engine.paths().config);
+                let a = app.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = a.weak.upgrade() {
+                        for problem in a.apply_config(&ui, &cfg) {
+                            log::warn!("{problem}");
+                        }
+                    }
+                });
+            }
+            app.engine.refresh_if_stale();
         });
     }
 
@@ -489,6 +510,27 @@ impl App {
             }
             if current() && app.engine.fetch_lazy_icons(&mut found) && current() {
                 app.publish(found, true);
+            }
+        });
+    }
+
+    /// Down/Up in an empty search box: the entries run last, newest first, the first selected.
+    fn show_recent(&self) {
+        let Some(ui) = self.weak.upgrade() else { return };
+        // A search still answering (the one for the emptied box) must not replace the list.
+        let qid = self.shared.latest.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut items = self.engine.recent();
+        if items.is_empty() {
+            return;
+        }
+        ui.set_selected(0);
+        self.show_results(items.clone(), false);
+        // Lazy plugin icons are only cached for the running session: ask for them again.
+        let app = self.clone();
+        std::thread::spawn(move || {
+            let current = || app.shared.latest.load(Ordering::SeqCst) == qid;
+            if app.engine.fetch_lazy_icons(&mut items) && current() {
+                app.publish(items, true);
             }
         });
     }
@@ -765,13 +807,14 @@ impl App {
         });
     }
 
-    /// The hotkey thread blocks on the channel: no polling while idle.
-    fn listen_for_hotkey(&self, id: u32) {
+    /// The hotkey thread blocks on the channel: no polling while idle. It reacts to the
+    /// hotkey registered last (`Shared::hotkey_id`).
+    fn listen_for_hotkey(&self) {
         let app = self.clone();
         std::thread::spawn(move || {
             let rx = GlobalHotKeyEvent::receiver();
             while let Ok(ev) = rx.recv() {
-                if ev.id == id && ev.state == HotKeyState::Pressed {
+                if ev.id == app.shared.hotkey_id.load(Ordering::SeqCst) && ev.state == HotKeyState::Pressed {
                     app.post(Command::Toggle, None);
                 }
             }
@@ -786,13 +829,10 @@ impl App {
             let handle = tray::spawn(move |cmd| match cmd {
                 tray::TrayCommand::Show => app.post(Command::Show, None),
                 tray::TrayCommand::Quit => app.post(Command::Quit, None),
-                tray::TrayCommand::Settings => {
-                    if let Err(e) = config::open_config() {
-                        log::warn!("settings: {e}");
-                    }
-                }
+                tray::TrayCommand::Settings => app.post(Command::Settings, None),
             });
-            with_state(|s| s.tray = handle);
+            // Turned off again meanwhile: dropping the handle removes the icon.
+            with_state(|s| s.tray = handle.filter(|_| s.applied.as_ref().is_some_and(|a| a.tray)));
         });
     }
 
@@ -856,22 +896,6 @@ fn with_activation_token(attrs: winit::window::WindowAttributes, _token: String)
 
 fn is_wayland() -> bool {
     cfg!(unix) && std::env::var_os("WAYLAND_DISPLAY").is_some()
-}
-
-fn register_hotkey(spec: &str) -> Option<(GlobalHotKeyManager, u32)> {
-    let hotkey: HotKey = match spec.parse() {
-        Ok(h) => h,
-        Err(e) => {
-            log::warn!("invalid hotkey {spec:?}: {e}");
-            return None;
-        }
-    };
-    let manager = GlobalHotKeyManager::new().ok()?;
-    if let Err(e) = manager.register(hotkey) {
-        log::warn!("cannot grab {spec:?} (another app may own it): {e}; `kairos --toggle` still works.");
-        return None;
-    }
-    Some((manager, hotkey.id()))
 }
 
 /// The taskbar / alt-tab icon. 48 px is plenty there and keeps it to 9 KB of pixels.

@@ -6,5 +6,6 @@ pub mod icons;
 pub mod paths;
 pub mod process;
 pub mod proxy;
+pub mod recent;
 pub mod sync;
 pub mod url;

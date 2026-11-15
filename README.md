@@ -35,6 +35,7 @@ configuration, and every plugin's commands and settings.
 | `:thumbs`, `emoji party` | Find an emoji and copy it | Emoji |
 | `uuid`, `genpw 32`, `hash sha256 hi` | Generate UUIDs and passwords, URL/Base64 encode and decode, hash text | Dev utilities |
 | `github`, `bm rust docs` | Open browser bookmarks (Firefox, Chrome, Chromium, Brave, Edge, Vivaldi) | Bookmarks |
+| `pause`, `vol 40`, `wifi off`, `dark`, `dnd 30m` | Control media, volume, Wi-Fi, Bluetooth, dark mode, brightness and Do Not Disturb | Controls |
 | `plugin` | Enable, configure, install and remove plugins | Plugins |
 | `update` | Check for a new version and install it | Update |
 
@@ -96,8 +97,8 @@ your desktop; `kairos --install-shortcut` does this for GNOME.
 
 Settings live in `~/.config/kairos/config.toml` (Windows: `%APPDATA%\kairos\config.toml`).
 The file explains every option; plugins add their settings to it, commented out at their
-defaults. Changes apply the next time the window opens. The tray icon's **Settings** entry opens
-the file.
+defaults. Changes apply the next time the window opens. The tray icon's **Settings** entry (or
+`kairos --settings`) opens a settings page for the launcher's options and every plugin's.
 
 A `portable` file next to the executable keeps everything (config, history, plugins, cache) in a
 `data` folder beside it.

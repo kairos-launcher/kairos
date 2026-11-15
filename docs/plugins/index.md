@@ -35,6 +35,7 @@ such as `f ` or `kill `), to **plain searches** (no prefix), or both.
 | [Bookmarks](./bookmarks) | `bookmarks` | `bm `, plain search | Browser bookmarks |
 | [Emoji](./emoji) | `emoji` | `:`, `emoji ` | Find and copy emoji |
 | [Timer](./timer) | `timer` | `timer ` | Timers and alarms |
+| [Controls](./controls) | `controls` | `media `, `toggle `, plain search | Media, volume, Wi-Fi, Bluetooth, dark mode, brightness, Do Not Disturb |
 | [Dev utilities](./devtools) | `devtools` | `uuid `, `genpw `, `urlencode `, `urldecode `, `base64 `, `hash ` | UUIDs, passwords, encodings, hashes |
 
 ## Managing plugins

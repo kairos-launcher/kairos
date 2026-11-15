@@ -110,6 +110,7 @@ description = "used when you type just `roll`"
 default = 6
 # options = ["a", "b"]           # allowed values of a `choice`
 # placeholder = "6"              # hint in the empty field on the settings page
+# section = "Dice"               # heading above this setting on the settings page (groups a long page)
 # required = true                # not started until this has a value (see [Plugin settings](#plugin-settings))
 # import = "mcp"                 # a table with fields: pasted MCP server JSON (Claude, VS Code) is added as entries
 ```
@@ -118,7 +119,7 @@ A `[permissions]` table is accepted but ignored (plugins are not sandboxed, see 
 
 ## Plugin settings
 
-A plugin declares its settings in `plugin.toml` with `[[settings]]` (key, `type`, `label`, `description`, `default`, `options` for a `choice`, and optionally `placeholder` and `required`). The plugin writes no UI: the launcher builds a **settings page** from this list, one field per setting in file order (`plugin`, Tab → Settings, or the first row of `plugin config <id>`). Every setting is edited in place: text and number fields, a toggle for `bool`, buttons for a `choice`, a password field for a `secret`, one item per line for a list of strings, TOML text for tables and lists of tables. Changes are saved together with Ctrl+S (nothing is saved if one field is invalid; it shows why), so the plugin restarts once. Esc goes back, asking once if there are unsaved changes.
+A plugin declares its settings in `plugin.toml` with `[[settings]]` (key, `type`, `label`, `description`, `default`, `options` for a `choice`, and optionally `placeholder`, `required` and `section`). The plugin writes no UI: the launcher builds a **settings page** from this list, one field per setting in file order (`plugin`, Tab → Settings, or the first row of `plugin config <id>`). Every setting is edited in place: text and number fields, a toggle for `bool`, buttons for a `choice`, a password field for a `secret`, one item per line for a list of strings, TOML text for tables and lists of tables. Changes are saved together with Ctrl+S (nothing is saved if one field is invalid; it shows why), so the plugin restarts once. Esc goes back, asking once if there are unsaved changes.
 
 Users can also set values in `config.toml`, in the same section as `enabled`:
 

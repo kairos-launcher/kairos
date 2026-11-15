@@ -42,6 +42,7 @@ list, streamed as it arrives. **Ctrl+C** stops it or goes back to the results.
 | `--toggle` | Show or hide the running launcher. |
 | `--show` / `--hide` | Show or hide the running launcher. |
 | `--query <text>` | Show the running launcher with `<text>` in the search box. |
+| `--settings` | Show the running launcher's settings page. |
 | `--quit` | Stop the running launcher. |
 | `--list-plugins` | List plugins with their state and triggers. |
 | `--set-token <plugin>` | Store a remote plugin's API token (read from stdin). |

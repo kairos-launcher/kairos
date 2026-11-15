@@ -71,6 +71,7 @@ export default defineConfig({
             { text: 'Bookmarks', link: '/plugins/bookmarks' },
             { text: 'Emoji', link: '/plugins/emoji' },
             { text: 'Timer', link: '/plugins/timer' },
+            { text: 'Controls', link: '/plugins/controls' },
             { text: 'Dev utilities', link: '/plugins/devtools' },
           ],
         },

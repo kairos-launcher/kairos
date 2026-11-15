@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::plugin::manifest::Setting;
+
 #[derive(Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -172,54 +174,61 @@ pub fn config_path() -> PathBuf {
     config_dir().join("config.toml")
 }
 
-/// What a fresh `config.toml` contains: every option, commented out at its default.
+/// What a fresh `config.toml` contains: every option, commented out at its default, generated
+/// from `general_settings.toml` (the settings page's description of them).
 pub fn default_file_contents() -> &'static str {
-    r#"# Launcher settings. Changes apply the next time the launcher opens.
+    static TEXT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| template(general_settings()));
+    &TEXT
+}
 
-# Global hotkey. On Wayland, bind `kairos --toggle` in your desktop instead
-# (see `kairos --install-shortcut`).
-# hotkey = "alt+space"
-
-# Results shown at most.
-# max_results = 8
-
-# System tray icon (double-click shows the launcher).
-# tray = true
-
-# Colour theme: "auto" follows the system, or force "dark" / "light".
-# theme = "auto"
-
-# Monitor to open on (X11/Windows): "mouse" (under the cursor), "active" (the focused
-# window's) or "primary". On Wayland the desktop decides. Needs a restart.
-# position = "mouse"
-
-# Fade in late results and show a progress bar while a plugin is still answering.
-# animations = true
-
-# Reopening within this many seconds brings back an unfinished search or answer, if you closed
-# the launcher without running anything (0: always start empty).
-# keep_search_s = 90
-
-# Proxy for plugins that go online (exchange rates, AI, remote plugins): "auto" uses the
-# HTTPS_PROXY/HTTP_PROXY variables, else the system settings (Windows Internet Options including
-# setup scripts, GNOME, KDE); "none" connects directly; or give one, e.g. "http://proxy:8080",
-# "http://user:password@proxy:8080", "socks5://127.0.0.1:1080". Plugins get it as HTTPS_PROXY etc.
-# proxy = "auto"
-# Hosts that skip the proxy, besides the system's list, e.g. "localhost,.corp.example".
-# no_proxy = ""
-
-# Start the launcher (hidden) when you sign in. Unset leaves autostart as it is.
-# start_on_boot = true
-
-# Extra folder with plugins, besides <config>/plugins and the `plugins` folder next to the executable.
-# Relative paths are relative to this file; `~` is your home folder.
-# plugins_dir = "/path/to/plugins"
-
-# Turn a plugin off by its id (see `kairos --list-plugins`), or in the launcher: `plugin `.
-# Plugin settings go in the same section; plugins add theirs below, commented out.
+fn template(settings: &[Setting]) -> String {
+    let mut out = String::from(
+        "# Launcher settings. The settings page (tray icon > Settings, `kairos --settings`, or search\n\
+         # for Settings) edits them too. Changes made here apply the next time the launcher opens.\n",
+    );
+    let mut section = "";
+    for s in settings {
+        if s.section != section {
+            section = &s.section;
+            out += &format!("\n# ---- {section} ----\n");
+        }
+        let mut about =
+            if s.description.is_empty() { s.title().to_string() } else { format!("{}: {}", s.title(), s.description) };
+        if !s.options.is_empty() {
+            about += &format!(" ({})", s.options.join(" | "));
+        }
+        out += "\n";
+        out += &comment_lines(&about, 96);
+        let line = match (&s.default, s.example.trim()) {
+            (_, example) if !example.is_empty() => example.to_string(),
+            (Some(default), _) => format!("{} = {default}", s.key),
+            (None, _) => format!("{} = \"\"", s.key),
+        };
+        out += &format!("# {line}\n");
+    }
+    out + "
+# Turn a plugin off by its id (see `kairos --list-plugins`), on the settings page, or in the
+# launcher: `plugin `. Plugin settings go in the same section; plugins add theirs below,
+# commented out.
 # [plugins.calc]
 # enabled = false
-"#
+"
+}
+
+/// `text` as `# ` comment lines of at most `width` characters (longer words stay whole).
+fn comment_lines(text: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut line = String::from("#");
+    for word in text.split_whitespace() {
+        if line.len() > 1 && line.len() + 1 + word.len() > width {
+            out += &line;
+            out.push('\n');
+            line = String::from("#");
+        }
+        line.push(' ');
+        line += word;
+    }
+    out + &line + "\n"
 }
 
 /// Create `path` from the template if it does not exist yet; never overwrites.
@@ -235,12 +244,42 @@ pub fn ensure_config_file_at(path: &std::path::Path) -> std::io::Result<()> {
     }
 }
 
-/// Open `config.toml` in the desktop's default editor, creating it first if needed.
-/// Stand-in for a settings window.
-pub fn open_config() -> Result<(), String> {
-    let path = config_path();
-    ensure_config_file_at(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    crate::core::process::open(&path.to_string_lossy()).map_err(|e| format!("cannot open {}: {e}", path.display()))
+/// `SettingsView`/`Engine::save_settings` id of the general settings page: the launcher's own
+/// options. Not a valid plugin id, so it never names a plugin.
+pub const GENERAL: &str = "";
+
+/// The launcher's options as settings (`general_settings.toml`), for the general settings page.
+pub fn general_settings() -> &'static [Setting] {
+    #[derive(Deserialize)]
+    struct File {
+        settings: Vec<Setting>,
+    }
+    static SETTINGS: std::sync::LazyLock<Vec<Setting>> = std::sync::LazyLock::new(|| {
+        toml::from_str::<File>(include_str!("general_settings.toml")).map_or_else(
+            |e| {
+                log::error!("general_settings.toml: {e}");
+                vec![]
+            },
+            |f| f.settings,
+        )
+    });
+    &SETTINGS
+}
+
+/// The launcher's options as set in the config file at `path` (top-level keys, no plugins).
+pub fn general_values(path: &Path) -> serde_json::Value {
+    let mut t: toml::Table =
+        std::fs::read_to_string(path).ok().and_then(|text| toml::from_str(&text).ok()).unwrap_or_default();
+    t.remove("plugins");
+    serde_json::to_value(t).unwrap_or_default()
+}
+
+/// Whether `key = value` is a valid launcher option: a bad one would make the whole file
+/// unreadable (`Config::load_from` falls back to the defaults).
+pub fn check_general_value(key: &str, value: &toml_edit::Item) -> Result<(), String> {
+    let mut doc = toml_edit::DocumentMut::new();
+    doc.insert(key, value.clone());
+    toml::from_str::<Config>(&doc.to_string()).map(|_| ()).map_err(|e| e.message().to_string())
 }
 
 /// Last modification time of a file or folder, if it exists.
@@ -269,18 +308,45 @@ pub fn set_plugin_value(path: &Path, id: &str, key: &str, value: toml_edit::Item
 
 /// `set_plugin_value` for several keys in one write. `Item::None` removes a key.
 pub fn set_plugin_values(path: &Path, id: &str, values: Vec<(String, toml_edit::Item)>) -> Result<(), String> {
+    set_values(path, Some(id), values)
+}
+
+/// Set keys of `[plugins.<id>]`, or with `None` the launcher's own top-level options, in one
+/// write. `Item::None` removes a key.
+pub fn set_values(path: &Path, plugin: Option<&str>, values: Vec<(String, toml_edit::Item)>) -> Result<(), String> {
     let mut doc = load_doc(path)?;
-    let plugins = doc
-        .entry("plugins")
-        .or_insert_with(toml_edit::table)
-        .as_table_mut()
-        .ok_or("config: `plugins` is not a table")?;
-    plugins.set_implicit(true);
-    let table = plugins
-        .entry(id)
-        .or_insert_with(toml_edit::table)
-        .as_table_mut()
-        .ok_or_else(|| format!("config: plugins.{id} is not a table"))?;
+    let mut values = values;
+    if plugin.is_none() {
+        // Where it works, as line edits: the comments around stay where they belong.
+        let mut text = doc.to_string();
+        values.retain(|(key, value)| match edit_top_level_line(&text, key, value) {
+            Some(t) => {
+                text = t;
+                false
+            }
+            None => true,
+        });
+        if values.is_empty() {
+            return save(path, &text);
+        }
+        doc = text.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    let table = match plugin {
+        None => doc.as_table_mut(),
+        Some(id) => {
+            let plugins = doc
+                .entry("plugins")
+                .or_insert_with(toml_edit::table)
+                .as_table_mut()
+                .ok_or("config: `plugins` is not a table")?;
+            plugins.set_implicit(true);
+            plugins
+                .entry(id)
+                .or_insert_with(toml_edit::table)
+                .as_table_mut()
+                .ok_or_else(|| format!("config: plugins.{id} is not a table"))?
+        }
+    };
     for (key, mut value) in values {
         // Tables parsed elsewhere (the settings page) carry that text's positions; let them
         // go after the plugin's own section instead.
@@ -290,6 +356,62 @@ pub fn set_plugin_values(path: &Path, id: &str, values: Vec<(String, toml_edit::
         table[key.as_str()] = value;
     }
     save(path, &doc.to_string())
+}
+
+/// `text` with top-level `key` removed (`Item::None`: its line goes, the comments above stay)
+/// or added below its commented-out line from the template (`# key = …`), so it does not end
+/// up above the file's opening comments. `None` when that is not possible or would mean
+/// something else (checked by parsing): the caller then edits the document as a whole.
+fn edit_top_level_line(text: &str, key: &str, value: &toml_edit::Item) -> Option<String> {
+    let doc = toml_edit::Document::parse(text).ok()?;
+    let mut want: toml::Table = toml::from_str(text).ok()?;
+    let new = match (doc.as_table().get_key_value(key), value.is_none()) {
+        (None, true) => return Some(text.to_string()),
+        (Some((k, item)), true) => {
+            let (k, item) = (k.span()?, item.span()?);
+            let start = text[..k.start].rfind('\n').map_or(0, |i| i + 1);
+            let end = text[item.end..].find('\n').map_or(text.len(), |i| item.end + i + 1);
+            want.remove(key);
+            format!("{}{}", &text[..start], &text[end..])
+        }
+        (None, false) => {
+            let mut line = toml_edit::DocumentMut::new();
+            line.insert(key, value.clone());
+            let line = line.to_string();
+            want.extend(toml::from_str::<toml::Table>(&line).ok()?);
+            let lines = || {
+                text.lines().scan(0, |pos, l| {
+                    let start = *pos;
+                    *pos += l.len() + 1;
+                    Some((start, l))
+                })
+            };
+            let line_end = |at: usize| text[at..].find('\n').map_or(text.len(), |i| at + i + 1);
+            let commented = format!("# {key} =");
+            // Below its template line, else below the last top-level key, else above the
+            // first table.
+            let at = lines()
+                .filter(|(_, l)| l.trim_start().starts_with(&commented))
+                .last()
+                .map(|(start, _)| line_end(start))
+                .or_else(|| {
+                    let last = doc
+                        .as_table()
+                        .iter()
+                        .filter(|(_, i)| i.is_value())
+                        .filter_map(|(_, i)| i.span())
+                        .map(|s| s.end)
+                        .max();
+                    last.map(line_end)
+                })
+                .or_else(|| lines().find(|(_, l)| l.trim_start().starts_with('[')).map(|(start, _)| start))
+                .unwrap_or(text.len());
+            let sep = if at == 0 || text[..at].ends_with('\n') { "" } else { "\n" };
+            format!("{}{sep}{line}{}", &text[..at], &text[at..])
+        }
+        (Some(_), false) => return None,
+    };
+    (toml::from_str::<toml::Table>(&new).ok()? == want).then_some(new)
 }
 
 fn clear_positions(t: &mut toml_edit::Table) {
@@ -500,5 +622,86 @@ mod tests {
             (Placement::Mouse, Placement::Active, Placement::Primary, Placement::Mouse)
         );
         assert_eq!(Config::default().position, Placement::Mouse);
+    }
+
+    #[test]
+    fn general_settings_describe_every_option_with_its_default() {
+        let settings = general_settings();
+        let keys: Vec<&str> = settings.iter().map(|s| s.key.as_str()).collect();
+        let options = [
+            "theme",
+            "animations",
+            "hotkey",
+            "max_results",
+            "keep_search_s",
+            "position",
+            "tray",
+            "start_on_boot",
+            "proxy",
+            "no_proxy",
+            "ca_file",
+            "plugins_dir",
+        ];
+        assert_eq!(keys, options, "every top-level Config option but `plugins`, once");
+        for key in keys {
+            assert!(default_file_contents().contains(&format!("# {key} =")), "{key} is in the template");
+        }
+        // The declared defaults are Config's.
+        let mut doc = toml_edit::DocumentMut::new();
+        for s in settings {
+            if let Some(d) = &s.default {
+                doc.insert(&s.key, s.parse_input(&s.input_text(Some(d))).unwrap().unwrap());
+                assert!(s.accepts(d), "{}", s.key);
+            }
+        }
+        let (c, d) = (toml::from_str::<Config>(&doc.to_string()).unwrap(), Config::default());
+        assert_eq!(
+            (c.theme, c.animations, &c.hotkey, c.max_results),
+            (d.theme, d.animations, &d.hotkey, d.max_results)
+        );
+        assert_eq!((c.keep_search_s, c.position, c.tray), (d.keep_search_s, d.position, d.tray));
+        assert_eq!((&c.proxy, &c.no_proxy, c.start_on_boot.unwrap_or(false)), (&d.proxy, &d.no_proxy, false));
+        assert!(c.ca_file.is_none() && c.plugins_dir.is_none());
+    }
+
+    #[test]
+    fn top_level_writes_keep_plugins_and_comments() {
+        let (_tmp, path) = tmp_config("# mine\nhotkey = \"ctrl+space\" # keep\n\n[plugins.a]\nenabled = false\n");
+        let values = vec![("theme".into(), toml_edit::value("dark")), ("hotkey".into(), toml_edit::Item::None)];
+        set_values(&path, None, values).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# mine\ntheme = \"dark\"\n\n[plugins.a]"), "{text}");
+        let c: Config = toml::from_str(&text).unwrap();
+        assert_eq!((c.theme, c.hotkey.as_str()), (ThemeMode::Dark, "alt+space"));
+        assert!(!c.plugin_enabled("a"));
+        let v = general_values(&path);
+        assert_eq!(v, serde_json::json!({"theme": "dark"}), "no plugins in the general values");
+    }
+
+    #[test]
+    fn top_level_keys_go_below_their_template_line_and_leave_its_comments() {
+        let template = format!("{}\n[plugins.calc]\nenabled = false\n", default_file_contents());
+        let (_tmp, path) = tmp_config(&template);
+        set_values(&path, None, vec![("theme".into(), toml_edit::value("dark"))]).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# Launcher settings."), "{text}");
+        assert!(text.contains("# theme = \"auto\"\ntheme = \"dark\"\n"), "{text}");
+        set_values(&path, None, vec![("max_results".into(), toml_edit::value(5))]).unwrap();
+        set_values(&path, None, vec![("theme".into(), toml_edit::Item::None)]).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text, template.replace("# max_results = 8\n", "# max_results = 8\nmax_results = 5\n"));
+        // Without a template line the key still goes to the top level.
+        let (_tmp, path) = tmp_config("# mine\n[plugins.a]\nx = 1\n");
+        set_values(&path, None, vec![("tray".into(), toml_edit::value(false))]).unwrap();
+        let c: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(!c.tray && c.plugin_settings("a").is_some());
+    }
+
+    #[test]
+    fn general_values_that_would_spoil_the_file_are_refused() {
+        assert!(check_general_value("keep_search_s", &toml_edit::value(-1)).is_err());
+        assert!(check_general_value("max_results", &toml_edit::value(2.5)).is_err());
+        assert!(check_general_value("max_results", &toml_edit::value(12)).is_ok());
+        assert!(check_general_value("theme", &toml_edit::value("dark")).is_ok());
     }
 }

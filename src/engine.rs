@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::builtin::{self, Bundled};
 use crate::config::Config;
 use crate::core::frecency::Frecency;
+use crate::core::recent::Recent;
 use crate::core::sync;
 use crate::icon_store::{IconStore, LazyIcon};
 use crate::plugin;
@@ -162,6 +163,8 @@ pub struct Paths {
     pub frecency: PathBuf,
     /// Which row was picked for which typed text.
     pub picks: PathBuf,
+    /// The entries run last, newest first.
+    pub recent: PathBuf,
     /// Private values of `secret` settings (`crate::plugin::secrets`); empty: none.
     pub secrets: PathBuf,
 }
@@ -174,6 +177,7 @@ impl Paths {
             plugins: crate::config::config_dir().join("plugins"),
             frecency: crate::config::state_file("frecency.json"),
             picks: crate::config::state_file("query_picks.json"),
+            recent: crate::config::state_file("recent.json"),
             secrets: crate::plugin::secrets::user_dir(),
         }
     }
@@ -185,6 +189,8 @@ pub struct Engine {
     /// The row last picked per typed text (`pick_key`): one pick counts fully, and a new pick for
     /// the same text replaces the old one.
     picks: Mutex<Frecency>,
+    /// The entries run last, offered on Down/Up in an empty search box.
+    recent: Mutex<Recent>,
     max_results: AtomicUsize,
     /// `keep_search_s` from config.toml.
     keep_search_s: AtomicU64,
@@ -309,6 +315,7 @@ impl Engine {
             registry: RwLock::new(Arc::new(Registry::new(plugins))),
             frecency: Mutex::new(frecency),
             picks: Mutex::new(Frecency::load_with(file(&paths.picks), 1, PICK_HALF_LIFE_DAYS)),
+            recent: Mutex::new(Recent::load(file(&paths.recent))),
             max_results: AtomicUsize::new(max_results),
             keep_search_s: AtomicU64::new(crate::config::Config::default().keep_search_s),
             icons,
@@ -385,13 +392,21 @@ impl Engine {
         use manifest::SettingKind;
         let reg = self.plugins();
         let general = |msg: String| vec![(String::new(), msg)];
-        let plugin = reg.plugins.iter().find(|p| p.manifest.id == id).ok_or_else(|| general("plugin gone".into()))?;
+        // The general page edits the launcher's own options, at the top level of config.toml.
+        let launcher = id == crate::config::GENERAL;
+        let settings = if launcher {
+            crate::config::general_settings()
+        } else {
+            let plugin =
+                reg.plugins.iter().find(|p| p.manifest.id == id).ok_or_else(|| general("plugin gone".into()))?;
+            &plugin.manifest.settings
+        };
         let mut values = vec![];
         let mut secrets = vec![];
         let mut errors = vec![];
         for change in changes {
             let key = change.key().to_string();
-            let Some(setting) = plugin.manifest.settings.iter().find(|s| s.key == key) else {
+            let Some(setting) = settings.iter().find(|s| s.key == key) else {
                 errors.push((key, "not a setting of this plugin".into()));
                 continue;
             };
@@ -409,10 +424,18 @@ impl Engine {
                 (SettingChange::Set { text, .. }, SettingKind::Number) if text.trim().is_empty() => {
                     values.push((key, toml_edit::Item::None));
                 }
-                (SettingChange::Set { text, .. }, _) => match setting.parse_input(&text) {
-                    Ok(item) => values.push((key, item.unwrap_or_default())),
-                    Err(e) => errors.push((key, e)),
-                },
+                (SettingChange::Set { text, .. }, _) => {
+                    match setting.parse_input(&text).and_then(|item| {
+                        let item = item.unwrap_or_default();
+                        if launcher && !item.is_none() {
+                            crate::config::check_general_value(&key, &item)?;
+                        }
+                        Ok(item)
+                    }) {
+                        Ok(item) => values.push((key, item)),
+                        Err(e) => errors.push((key, e)),
+                    }
+                }
                 (SettingChange::SecretEntry { .. }, _) => errors.push((key, "not a list of named secrets".into())),
             }
         }
@@ -421,7 +444,7 @@ impl Engine {
         }
         let mut result = Ok(());
         if !values.is_empty() {
-            result = crate::config::set_plugin_values(&self.paths.config, id, values);
+            result = crate::config::set_values(&self.paths.config, (!launcher).then_some(id), values);
         }
         for (key, name, value) in secrets {
             if result.is_err() {
@@ -712,10 +735,21 @@ impl Engine {
             let saves = [
                 sync::lock(&self.frecency).record(&key(item)),
                 sync::lock(&self.picks).record_only(&pick_key(item), &pick_group(item)),
+                sync::lock(&self.recent).record(item),
             ];
             persist(saves.into_iter().flatten().collect());
         }
         Ok(out)
+    }
+
+    /// The entries run last, newest first, up to `max_results`; those of plugins that are no
+    /// longer enabled are left out.
+    pub fn recent(&self) -> Vec<ResultItem> {
+        let reg = self.plugins();
+        let max_results = self.max_results.load(Ordering::Relaxed);
+        let mut items = sync::lock(&self.recent).items(max_results, |p| reg.enabled(p).is_some());
+        self.finalize_icons(&mut items);
+        items
     }
 
     /// Stop streaming the output of execution `exec` (its panel closed). May block briefly on
@@ -1008,6 +1042,7 @@ mod tests {
             plugins: root.join("plugins"),
             frecency: root.join("frecency.json"),
             picks: root.join("query_picks.json"),
+            recent: root.join("recent.json"),
             secrets: root.join("secrets"),
         };
         let e = Engine::with_paths(&Config::default(), paths);
@@ -1140,6 +1175,29 @@ mod tests {
         assert_eq!(*rec.0.lock().unwrap(), "2+2");
     }
 
+    #[test]
+    fn run_entries_are_offered_newest_first_with_their_query() {
+        let (_icons, icons) = test_store();
+        let e = Engine::from_plugins(vec![info("a", ""), info("b", "")], Frecency::load(None), 8, icons);
+        let run = |provider: &str, id: &str, fallback: bool| {
+            let mut r = ResultItem::new(id, id, "", 0.5);
+            r.provider = provider.into();
+            r.query = format!("typed {id}");
+            r.fallback = fallback;
+            e.execute(&r, "", &ExecCtx::none()).unwrap();
+        };
+        run("a", "1", false);
+        run("b", "2", false);
+        run("a", "ask", true);
+        let recent = e.recent();
+        let got: Vec<_> = recent.iter().map(|r| (r.provider.as_str(), r.id.as_str(), r.query.as_str())).collect();
+        assert_eq!(got, [("b", "2", "typed 2"), ("a", "1", "typed 1")], "fallback rows are not remembered");
+
+        // A plugin that is no longer enabled drops out of the list.
+        *sync::write(&e.registry) = Arc::new(Registry::new(vec![info("a", "")]));
+        assert_eq!(e.recent().iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["1"]);
+    }
+
     fn with_description(id: &'static str, triggers: &str, description: &str) -> PluginInfo {
         let m = Manifest::parse(
             &format!("id = \"{id}\"\nname = \"Name {id}\"\nversion = \"1\"\ndescription = \"{description}\"\n[query]\ntriggers = [{triggers}]\nglobal = false\n"),
@@ -1193,5 +1251,20 @@ mod tests {
         let out = e.execute(&item, "complete", &ExecCtx::none()).unwrap();
         assert!(out.keeps_open());
         assert_eq!(out.query(), Some("kill "));
+    }
+
+    #[test]
+    fn the_general_page_saves_only_valid_launcher_options() {
+        let (_tmp, icons) = test_store();
+        let e = Engine::from_plugins(vec![], Frecency::load(None), 8, icons);
+        let set = |key: &str, text: &str| SettingChange::Set { key: key.into(), text: text.into() };
+        let err = e
+            .save_settings(
+                crate::config::GENERAL,
+                vec![set("max_results", "lots"), set("keep_search_s", "-1"), set("nope", "1"), set("theme", "dark")],
+            )
+            .unwrap_err();
+        let keys: Vec<&str> = err.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["max_results", "keep_search_s", "nope"]);
     }
 }

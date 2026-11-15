@@ -8,8 +8,9 @@ All settings, the launcher's and every plugin's, are in one [TOML](https://toml.
 | Windows | `%APPDATA%\kairos\config.toml` |
 | Portable | `data\config.toml` next to the executable |
 
-The tray icon's **Settings** entry opens it, and creates it first if needed with every option
-commented out at its default. Edits apply the next time the launcher window opens.
+The [Settings page](./configuration#launcher-settings) edits it for you; its **Edit config.toml**
+link opens the file, and creates it first if needed with every option commented out at its
+default. Edits made in the file apply the next time the launcher window opens.
 
 ## Example
 
@@ -47,7 +48,7 @@ enabled = false
 | `max_results` | `8` | Results shown at most. |
 | `tray` | `true` | System tray icon, see [below](#tray-icon). |
 | `theme` | `"auto"` | `"auto"` follows the system, or force `"dark"` / `"light"`. |
-| `position` | `"mouse"` | Monitor to open on: `"mouse"` (under the cursor), `"active"` (the focused window's) or `"primary"`. X11 and Windows only; on Wayland the desktop decides. Needs a restart. |
+| `position` | `"mouse"` | Monitor to open on: `"mouse"` (under the cursor), `"active"` (the focused window's) or `"primary"`. X11 and Windows only; on Wayland the desktop decides. |
 | `animations` | `true` | Fade in late results and show a progress bar while a plugin is still answering. Typing and selection are never animated. |
 | `keep_search_s` | `90` | Reopening within this many seconds brings back an unfinished search or answer. `0`: always start empty. |
 | `start_on_boot` | unset | `true` starts the launcher hidden at sign-in, `false` removes that; unset leaves it alone. |

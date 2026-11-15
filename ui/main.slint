@@ -61,6 +61,8 @@ export component MainWindow inherits Window {
     in property <[ActionItem]> actions;
     in-out property <bool> menu-open: false;
     in-out property <int> action-selected: 0;
+    // Down/Up in an empty search box: list the entries run last.
+    callback show-recent();
     callback activate(int);
     callback open-menu(int);
     callback run-action(int, int);
@@ -102,6 +104,10 @@ export component MainWindow inherits Window {
     callback settings-item-add(int, string, string);
     callback settings-item-remove(int, string);
     callback settings-entry-open(int, string);
+    callback settings-link-toggle(int, string);
+    in property <bool> settings-filterable;
+    in property <string> settings-filter;
+    callback settings-filter-edited(string);
     callback settings-open-config();
     callback settings-save();
     /// Esc or ←: Rust warns once about unsaved changes, then leaves.
@@ -259,6 +265,11 @@ export component MainWindow inherits Window {
                     if root.items.length > 0 {
                         root.open-menu(root.selected);
                     }
+                    return accept;
+                }
+                // Nothing typed and no list yet: the arrows bring up the entries run last.
+                if (e.text == Key.DownArrow || e.text == Key.UpArrow) && root.query == "" && root.items.length == 0 {
+                    root.show-recent();
                     return accept;
                 }
                 if e.text == Key.DownArrow {
@@ -654,6 +665,14 @@ export component MainWindow inherits Window {
                     }
                     entry-open(i, n) => {
                         root.settings-entry-open(i, n);
+                    }
+                    link-toggle(i, n) => {
+                        root.settings-link-toggle(i, n);
+                    }
+                    filterable: root.settings-filterable;
+                    filter: root.settings-filter;
+                    filter-edited(t) => {
+                        root.settings-filter-edited(t);
                     }
                     open-config => {
                         root.settings-open-config();
