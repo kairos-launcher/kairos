@@ -9,7 +9,8 @@ export struct SettingField {
     placeholder: string,
     /// 0 text, 1 number, 2 bool, 3 choice, 4 secret, 5 named secrets, 6 lines (list),
     /// 7 TOML (table, list of tables), 8 read-only, 9 entries (a table with fields, edited one
-    /// by one), 10 key/value pairs (a table of strings).
+    /// by one), 10 key/value pairs (a table of strings), 11 links (plugins, each opening its
+    /// own page).
     kind: int,
     text: string,
     options: [string],
@@ -30,6 +31,16 @@ export struct SettingField {
     error: string,
     /// Height of a multi-line field, in lines.
     rows: int,
+    /// Heading shown above this field (the first of its section); empty: none.
+    section: string,
+    /// Left out by the page's filter.
+    hidden: bool,
+    /// The first row shown (its heading needs no line above).
+    first-shown: bool,
+    /// Links: each plugin's switch, whether it cannot be switched off, whether it has a page.
+    on: [bool],
+    locked: [bool],
+    openable: [bool],
 }
 
 component Link inherits Text {
@@ -111,6 +122,8 @@ component TextBox inherits Rectangle {
 component Toggle inherits FocusScope {
     in property <bool> on;
     in property <bool> autofocus;
+    /// Shown, but cannot be switched.
+    in property <bool> locked;
     callback toggled();
     width: 40px;
     height: 22px;
@@ -120,13 +133,14 @@ component Toggle inherits FocusScope {
         }
     }
     key-pressed(e) => {
-        if e.text == " " || e.text == Key.Return {
+        if (e.text == " " || e.text == Key.Return) && !root.locked {
             root.toggled();
             return accept;
         }
         reject
     }
     Rectangle {
+        opacity: root.locked ? 0.45 : 1;
         border-radius: self.height / 2;
         background: root.on ? Theme.accent : Theme.tile;
         border-width: root.has-focus ? 2px : 1px;
@@ -142,10 +156,12 @@ component Toggle inherits FocusScope {
         }
     }
     TouchArea {
-        mouse-cursor: pointer;
+        mouse-cursor: root.locked ? default : pointer;
         clicked => {
             root.focus();
-            root.toggled();
+            if !root.locked {
+                root.toggled();
+            }
         }
     }
 }
@@ -349,20 +365,34 @@ component Entries inherits VerticalLayout {
     in property <string> placeholder;
     in property <[string]> values;
     in property <bool> autofocus;
+    /// Plugins: a switch each, open those with a page; no Remove, no Add.
+    in property <bool> links;
+    in property <[bool]> on;
+    in property <[bool]> locked;
+    in property <[bool]> openable;
     callback open(string);
     callback remove(string);
+    callback toggle(string);
     spacing: 6px;
     for name[n] in root.names: HorizontalLayout {
         spacing: 10px;
+        if root.links: Toggle {
+            on: root.on[n];
+            locked: root.locked[n];
+            toggled => {
+                root.toggle(name);
+            }
+        }
         Text {
-            width: 34%;
+            width: root.links ? 28% : 34%;
             text: name;
             font-size: 14px;
             color: Theme.text;
             vertical-alignment: center;
             overflow: elide;
             TouchArea {
-                mouse-cursor: pointer;
+                enabled: !root.links || root.openable[n];
+                mouse-cursor: self.enabled ? pointer : default;
                 clicked => {
                     root.open(name);
                 }
@@ -376,14 +406,14 @@ component Entries inherits VerticalLayout {
             vertical-alignment: center;
             overflow: elide;
         }
-        Link {
-            text: "Edit";
+        if !root.links || root.openable[n]: Link {
+            text: root.links ? "Open" : "Edit";
             vertical-alignment: center;
             clicked => {
                 root.open(name);
             }
         }
-        Link {
+        if !root.links: Link {
             text: "Remove";
             vertical-alignment: center;
             clicked => {
@@ -391,7 +421,7 @@ component Entries inherits VerticalLayout {
             }
         }
     }
-    HorizontalLayout {
+    if !root.links: HorizontalLayout {
         spacing: 6px;
         new-box := TextBox {
             horizontal-stretch: 1;
@@ -421,6 +451,7 @@ component FieldRow inherits HorizontalLayout {
     callback item-add(string, string);
     callback item-remove(string);
     callback entry-open(string);
+    callback link-toggle(string);
     callback open-config();
 
     padding-left: 24px;
@@ -464,7 +495,9 @@ component FieldRow inherits HorizontalLayout {
         }
 
         VerticalLayout {
-            horizontal-stretch: 1;
+            // An explicit width: wrapped descriptions are only measured at their real width
+            // (and so counted with all their lines) when the width does not come from the layout.
+            width: root.width - root.padding-left - root.padding-right - 140px - root.spacing;
             alignment: start;
             spacing: 4px;
 
@@ -536,7 +569,14 @@ component FieldRow inherits HorizontalLayout {
                     root.item-remove(name);
                 }
             }
-            if root.field.kind == 9: Entries {
+            if root.field.kind == 9 || root.field.kind == 11: Entries {
+                links: root.field.kind == 11;
+                on: root.field.on;
+                locked: root.field.locked;
+                openable: root.field.openable;
+                toggle(name) => {
+                    root.link-toggle(name);
+                }
                 names: root.field.names;
                 placeholder: root.field.placeholder;
                 values: root.field.values;
@@ -592,6 +632,27 @@ component FieldRow inherits HorizontalLayout {
         }
 }
 
+/// A section's title; below the previous section's last field a thin line separates them.
+component SectionHeading inherits VerticalLayout {
+    in property <string> text;
+    in property <bool> first;
+    padding-left: 24px;
+    padding-right: 24px;
+    padding-top: root.first ? 4px : 10px;
+    padding-bottom: 2px;
+    spacing: 10px;
+    if !root.first: Rectangle {
+        height: 1px;
+        background: Theme.divider;
+    }
+    Text {
+        text: root.text;
+        font-size: 12px;
+        font-weight: 700;
+        color: Theme.accent;
+    }
+}
+
 export component SettingsPanel inherits Rectangle {
     in property <[SettingField]> fields;
     /// Give the first field the keyboard when the rows are created (the page just opened).
@@ -601,20 +662,42 @@ export component SettingsPanel inherits Rectangle {
     in property <int> dirty-count;
     in property <length> max-body-height;
     in property <length> footer-height: 34px;
+    /// Show a filter box above the rows (a long page); it takes the keyboard first.
+    in property <bool> filterable;
+    in property <string> filter;
+    property <length> filter-height: root.filterable ? 48px : 0px;
     // Slint creates the rows at the next frame; until then the body measures only its padding.
     // Start at full height then, and only shrink once measured: growing after the first frame
     // would leave the newly exposed area unpainted (stale pixels of the results list).
-    property <length> body-height: root.fields.length > 0 && body.preferred-height <= 2 * body.padding-top ? root.max-body-height : min(root.max-body-height, body.preferred-height);
-    out property <length> wanted-height: root.body-height + 1px + root.footer-height;
+    property <length> body-max: root.max-body-height - root.filter-height;
+    property <length> body-height: root.fields.length > 0 && body.preferred-height <= 2 * body.padding-top ? root.body-max : min(root.body-max, body.preferred-height);
+    out property <length> wanted-height: root.filter-height + root.body-height + 1px + root.footer-height;
     callback edited(int, string);
     callback reset(int);
     callback item-add(int, string, string);
     callback item-remove(int, string);
     callback entry-open(int, string);
+    callback link-toggle(int, string);
+    callback filter-edited(string);
     callback open-config();
     callback save();
 
     VerticalLayout {
+        if root.filterable: HorizontalLayout {
+            height: root.filter-height;
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 12px;
+            padding-bottom: 4px;
+            TextBox {
+                text: root.filter;
+                placeholder: "Filter settings and plugins";
+                autofocus: root.autofocus;
+                edited(t) => {
+                    root.filter-edited(t);
+                }
+            }
+        }
         Rectangle {
             height: root.body-height;
         flick := Flickable {
@@ -623,26 +706,35 @@ export component SettingsPanel inherits Rectangle {
                 width: flick.width;
                 padding-top: 6px;
                 padding-bottom: 6px;
-                for f[i] in root.fields: FieldRow {
-                    field: f;
-                    autofocus: root.autofocus && i == 0;
-                    edited(t) => {
-                        root.edited(i, t);
+                for f[i] in root.fields: VerticalLayout {
+                    if !f.hidden && f.section != "": SectionHeading {
+                        text: f.section;
+                        first: f.first-shown;
                     }
-                    reset => {
-                        root.reset(i);
-                    }
-                    item-add(n, v) => {
-                        root.item-add(i, n, v);
-                    }
-                    item-remove(n) => {
-                        root.item-remove(i, n);
-                    }
-                    entry-open(n) => {
-                        root.entry-open(i, n);
-                    }
-                    open-config => {
-                        root.open-config();
+                    if !f.hidden: FieldRow {
+                        field: f;
+                        autofocus: root.autofocus && !root.filterable && i == 0;
+                        edited(t) => {
+                            root.edited(i, t);
+                        }
+                        reset => {
+                            root.reset(i);
+                        }
+                        item-add(n, v) => {
+                            root.item-add(i, n, v);
+                        }
+                        item-remove(n) => {
+                            root.item-remove(i, n);
+                        }
+                        entry-open(n) => {
+                            root.entry-open(i, n);
+                        }
+                        link-toggle(n) => {
+                            root.link-toggle(i, n);
+                        }
+                        open-config => {
+                            root.open-config();
+                        }
                     }
                 }
             }

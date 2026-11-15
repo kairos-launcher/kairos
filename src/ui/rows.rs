@@ -79,10 +79,7 @@ fn load_bitmap(path: &Path, px: u32) -> Option<slint::Image> {
 
 /// `src` scaled down so its longer side is `max` pixels: every target pixel is the average of
 /// the source pixels it covers, weighted by alpha so transparent pixels do not darken edges.
-fn shrink(
-    src: &slint::SharedPixelBuffer<slint::Rgba8Pixel>,
-    max: u32,
-) -> slint::SharedPixelBuffer<slint::Rgba8Pixel> {
+fn shrink(src: &slint::SharedPixelBuffer<slint::Rgba8Pixel>, max: u32) -> slint::SharedPixelBuffer<slint::Rgba8Pixel> {
     let (sw, sh) = (src.width() as usize, src.height() as usize);
     let longer = sw.max(sh);
     let (w, h) = ((sw * max as usize / longer).max(1), (sh * max as usize / longer).max(1));

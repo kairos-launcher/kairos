@@ -102,6 +102,10 @@ export component MainWindow inherits Window {
     callback settings-item-add(int, string, string);
     callback settings-item-remove(int, string);
     callback settings-entry-open(int, string);
+    callback settings-link-toggle(int, string);
+    in property <bool> settings-filterable;
+    in property <string> settings-filter;
+    callback settings-filter-edited(string);
     callback settings-open-config();
     callback settings-save();
     /// Esc or ←: Rust warns once about unsaved changes, then leaves.
@@ -654,6 +658,14 @@ export component MainWindow inherits Window {
                     }
                     entry-open(i, n) => {
                         root.settings-entry-open(i, n);
+                    }
+                    link-toggle(i, n) => {
+                        root.settings-link-toggle(i, n);
+                    }
+                    filterable: root.settings-filterable;
+                    filter: root.settings-filter;
+                    filter-edited(t) => {
+                        root.settings-filter-edited(t);
                     }
                     open-config => {
                         root.settings-open-config();

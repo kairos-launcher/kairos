@@ -1,0 +1,107 @@
+# The launcher's own options (top level of config.toml), described like a plugin's settings so
+# the same settings page edits them (`config::general_settings`), and the commented-out
+# config.toml a first start writes is generated from them (`config::default_file_contents`).
+# Keep in step with `Config` (a test checks). `example` is the line the file shows instead of
+# `key = default`.
+
+[[settings]]
+section = "Appearance"
+key = "theme"
+type = "choice"
+label = "Theme"
+options = ["auto", "dark", "light"]
+default = "auto"
+description = "Auto follows the system."
+
+[[settings]]
+section = "Appearance"
+key = "animations"
+type = "bool"
+label = "Animations"
+default = true
+description = "Fade in late results and show a progress bar while a plugin is still answering."
+
+[[settings]]
+section = "Behaviour"
+key = "hotkey"
+type = "string"
+label = "Hotkey"
+default = "alt+space"
+description = "Global shortcut, e.g. alt+space or ctrl+shift+k. On Wayland, bind `kairos --toggle` in your desktop instead (see `kairos --install-shortcut`)."
+
+[[settings]]
+section = "Behaviour"
+key = "max_results"
+type = "number"
+label = "Results"
+default = 8
+description = "Results shown at most."
+
+[[settings]]
+section = "Behaviour"
+key = "keep_search_s"
+type = "number"
+label = "Keep search"
+default = 90
+description = "Seconds: reopening within this time brings back an unfinished search or answer, if you closed the launcher without running anything (0: always start empty)."
+
+[[settings]]
+section = "Behaviour"
+key = "position"
+type = "choice"
+label = "Open on"
+options = ["mouse", "active", "primary"]
+default = "mouse"
+description = "Monitor to open on (X11/Windows): under the mouse, the focused window's, or the primary one. On Wayland the desktop decides."
+
+[[settings]]
+section = "Behaviour"
+key = "tray"
+type = "bool"
+label = "Tray icon"
+default = true
+description = "Double-click shows the launcher; its menu opens these settings."
+
+[[settings]]
+section = "Behaviour"
+key = "start_on_boot"
+type = "bool"
+label = "Start on sign-in"
+default = false
+description = "Start the launcher (hidden) when you sign in. Left out of config.toml, autostart stays as it is."
+example = "start_on_boot = true"
+
+[[settings]]
+section = "Network"
+key = "proxy"
+type = "string"
+label = "Proxy"
+default = "auto"
+description = "For plugins that go online (exchange rates, AI, remote plugins). auto: the HTTPS_PROXY/HTTP_PROXY variables, else the system settings (Windows Internet Options including setup scripts, GNOME, KDE); none: connect directly; or a URL such as http://proxy:8080, http://user:password@proxy:8080 or socks5://127.0.0.1:1080. Plugins get it as HTTPS_PROXY etc."
+
+[[settings]]
+section = "Network"
+key = "no_proxy"
+type = "string"
+label = "No proxy for"
+default = ""
+placeholder = "localhost,.corp.example"
+description = "Hosts that skip the proxy, besides the system's list."
+
+[[settings]]
+section = "Network"
+key = "ca_file"
+type = "path"
+label = "CA certificates"
+placeholder = "/path/to/ca.pem"
+description = "PEM file with the certificates remote plugins trust (instead of the public roots). A plugin's own ca_file in its section wins."
+example = 'ca_file = "/path/to/ca.pem"'
+
+[[settings]]
+section = "Plugins"
+key = "plugins_dir"
+type = "path"
+label = "Plugin folder"
+placeholder = "/path/to/plugins"
+description = "Extra folder with plugins, besides <config>/plugins and the plugins folder next to the executable. Relative paths are relative to config.toml; `~` is your home folder."
+example = 'plugins_dir = "/path/to/plugins"'

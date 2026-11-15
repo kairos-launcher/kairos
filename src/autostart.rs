@@ -2,6 +2,16 @@
 
 const NAME: &str = "kairos";
 
+/// `start_on_boot` from config.toml: register (`true`) or remove (`false`) autostart; unset
+/// leaves it alone. Run on every start and when the settings page changes it.
+pub fn apply(start_on_boot: Option<bool>) {
+    let Some(on) = start_on_boot else { return };
+    let result = if on { install() } else { uninstall() };
+    if let Err(e) = result {
+        log::warn!("start_on_boot: {e}");
+    }
+}
+
 fn exe() -> Result<std::path::PathBuf, String> {
     std::env::current_exe().map_err(|e| e.to_string())
 }

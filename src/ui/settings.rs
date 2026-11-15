@@ -8,12 +8,17 @@
 //!
 //! A table with `fields` lists its entries; Add or Edit swaps the page for a sub-form with one
 //! row per field (the same editors), which writes the entry back into the table.
+//!
+//! The general page (`config::GENERAL`) edits the launcher's own options the same way (they are
+//! described as settings in `general_settings.toml`) and lists the plugins with settings; a
+//! plugin opened from there goes back to it on Esc.
 
 use std::rc::Rc;
 
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 use super::{App, MainWindow, SettingField, with_state};
+use crate::config::{self, GENERAL};
 use crate::engine::{PluginInfo, SettingChange};
 use crate::plugin::manifest::{Setting, SettingKind};
 
@@ -30,7 +35,11 @@ mod kind {
     pub const READ_ONLY: i32 = 8;
     pub const ENTRIES: i32 = 9;
     pub const PAIRS: i32 = 10;
+    pub const LINKS: i32 = 11;
 }
+
+/// Pages with at least this many fields get a filter box.
+const FILTER_FROM: usize = 10;
 
 /// The open settings page.
 pub(super) struct SettingsView {
@@ -42,9 +51,26 @@ pub(super) struct SettingsView {
     /// Esc was pressed once with unsaved changes; the next one discards them.
     warned: bool,
     saving: bool,
+    /// The page this one was opened from (the general page), shown again on Esc.
+    parent: Option<Box<SettingsView>>,
+    /// What the filter box holds (long pages).
+    filter: String,
 }
 
 impl SettingsView {
+    fn new(plugin: &str, title: String, fields: Vec<FieldState>) -> Self {
+        Self {
+            plugin: plugin.into(),
+            title,
+            fields,
+            editing: None,
+            warned: false,
+            saving: false,
+            parent: None,
+            filter: String::new(),
+        }
+    }
+
     /// The rows on screen: the entry's while one is open, else the page's.
     fn active(&self) -> &[FieldState] {
         self.editing.as_ref().map_or(&self.fields, |e| &e.fields)
@@ -108,19 +134,7 @@ impl EntryEdit {
     fn new(plugin: &str, index: usize, parent: &FieldState, name: &str) -> Self {
         let table = parent.table();
         let stored = table.get(name).and_then(toml::Value::as_table).cloned();
-        let name_setting = Setting {
-            key: String::new(),
-            kind: SettingKind::String,
-            label: "Name".into(),
-            description: String::new(),
-            default: None,
-            options: vec![],
-            example: String::new(),
-            placeholder: String::new(),
-            required: true,
-            fields: vec![],
-            import: None,
-        };
+        let name_setting = Setting { required: true, ..plain_setting("", SettingKind::String, "Name") };
         let mut fields = vec![FieldState::new(plugin, &name_setting, Some(&serde_json::json!(name)))];
         for sub in &parent.setting.fields {
             let value = stored.as_ref().and_then(|e| e.get(&sub.key)).and_then(|v| serde_json::to_value(v).ok());
@@ -133,7 +147,7 @@ impl EntryEdit {
         Self {
             field: index,
             original: stored.is_some().then(|| name.to_string()),
-            fields,
+            fields: with_headings(fields),
             stored: stored.unwrap_or_default(),
         }
     }
@@ -189,6 +203,45 @@ struct FieldState {
     error: String,
     /// What an empty field shows.
     placeholder: String,
+    /// The section heading shown above this field (the first of its section).
+    heading: String,
+    /// LINKS: the plugins listed.
+    links: Vec<PluginLink>,
+    /// Whether the page's filter leaves it.
+    shown: Shown,
+    /// LINKS: the filter's words when it matches some plugins rather than the field (only
+    /// those are listed).
+    link_filter: Vec<String>,
+}
+
+/// Whether a field is on screen (see the page's filter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shown {
+    Yes,
+    /// The first one on the page.
+    First,
+    /// Filtered out.
+    No,
+}
+
+/// A plugin in the general page's list.
+#[derive(Debug, Clone, PartialEq)]
+struct PluginLink {
+    id: String,
+    name: String,
+    /// One line about it: its settings, whether it needs setup.
+    about: String,
+    enabled: bool,
+    /// Cannot be switched off (the plugin manager).
+    locked: bool,
+    /// Has settings, so a page to open.
+    openable: bool,
+}
+
+/// Whether `text` contains every word of `words` (lowercase), ignoring case.
+fn matches(words: &[String], text: &str) -> bool {
+    let text = text.to_lowercase();
+    words.iter().all(|w| text.contains(w.as_str()))
 }
 
 impl FieldState {
@@ -247,6 +300,10 @@ impl FieldState {
             removed: vec![],
             error: String::new(),
             placeholder,
+            heading: String::new(),
+            links: vec![],
+            shown: Shown::Yes,
+            link_filter: vec![],
         }
     }
 
@@ -334,6 +391,7 @@ impl FieldState {
             s.options.iter().map(|o| if o.is_empty() { "none".to_string() } else { o.clone() }).collect();
         let segmented = labels.len() <= 4 && labels.iter().map(|l| l.chars().count() + 2).sum::<usize>() <= 36;
         let (names, values): (Vec<String>, Vec<String>) = match self.kind {
+            kind::LINKS => self.shown_links().map(|l| (l.name.clone(), l.about.clone())).unzip(),
             kind::ENTRIES => self.table().iter().map(|(k, v)| (k.clone(), self.summary(v))).unzip(),
             kind::PAIRS => self
                 .table()
@@ -370,37 +428,177 @@ impl FieldState {
             required: s.required,
             error: self.error.as_str().into(),
             rows: i32::try_from(lines.clamp(3, 10)).unwrap_or(3),
+            section: self.heading.as_str().into(),
+            hidden: self.shown == Shown::No,
+            first_shown: self.shown == Shown::First,
+            on: bools(self.shown_links().map(|l| l.enabled)),
+            locked: bools(self.shown_links().map(|l| l.locked)),
+            openable: bools(self.shown_links().map(|l| l.openable)),
         }
     }
+
+    /// LINKS: the plugins the filter leaves.
+    fn shown_links(&self) -> impl Iterator<Item = &PluginLink> {
+        self.links.iter().filter(|l| matches(&self.link_filter, &format!("{} {}", l.name, l.about)))
+    }
+
+    /// Show this field only if it matches `words` (lowercase; none: everything). A plugin list
+    /// that does not match as a whole lists only the plugins that do.
+    fn set_filter(&mut self, words: &[String]) {
+        let s = &self.setting;
+        let own = matches(words, &format!("{} {} {} {}", s.section, s.title(), s.description, s.key));
+        self.link_filter.clear();
+        let mut shown = own;
+        if self.kind == kind::LINKS && !own {
+            self.link_filter = words.to_vec();
+            shown = self.shown_links().next().is_some();
+        }
+        self.shown = if shown { Shown::Yes } else { Shown::No };
+    }
+}
+
+fn bools(v: impl Iterator<Item = bool>) -> ModelRc<bool> {
+    ModelRc::new(VecModel::from(v.collect::<Vec<_>>()))
 }
 
 /// The page's fields for plugin `p`, in manifest order.
 fn fields_of(p: &PluginInfo) -> Vec<FieldState> {
-    p.manifest.settings.iter().map(|s| FieldState::new(&p.manifest.id, s, p.settings.get(&s.key))).collect()
+    with_headings(
+        p.manifest.settings.iter().map(|s| FieldState::new(&p.manifest.id, s, p.settings.get(&s.key))).collect(),
+    )
+}
+
+/// A setting with only a key, a type and a label.
+fn plain_setting(key: &str, kind: SettingKind, label: &str) -> Setting {
+    Setting {
+        key: key.into(),
+        kind,
+        label: label.into(),
+        description: String::new(),
+        default: None,
+        options: vec![],
+        example: String::new(),
+        placeholder: String::new(),
+        required: false,
+        fields: vec![],
+        import: None,
+        section: String::new(),
+    }
+}
+
+/// Give the first field shown of each section its heading.
+fn with_headings(mut fields: Vec<FieldState>) -> Vec<FieldState> {
+    set_headings(&mut fields);
+    fields
+}
+
+fn set_headings(fields: &mut [FieldState]) {
+    let mut previous = None;
+    let mut first = true;
+    for f in fields {
+        f.heading.clear();
+        if f.shown == Shown::No {
+            continue;
+        }
+        f.shown = if std::mem::take(&mut first) { Shown::First } else { Shown::Yes };
+        if previous != Some(&f.setting.section) {
+            f.heading.clone_from(&f.setting.section);
+            previous = Some(&f.setting.section);
+        }
+    }
+}
+
+/// The general page: the launcher's options (current values in the config file at `config`),
+/// the plugins that have settings, and the config file itself.
+fn general_fields(config: &std::path::Path, plugins: &[PluginInfo]) -> Vec<FieldState> {
+    let values = config::general_values(config);
+    // Effective values, as a plugin's page gets them: unset options show their default.
+    let effective = |s: &Setting| {
+        values.get(&s.key).cloned().or_else(|| s.default.as_ref().and_then(|d| serde_json::to_value(d).ok()))
+    };
+    let mut fields: Vec<FieldState> =
+        config::general_settings().iter().map(|s| FieldState::new(GENERAL, s, effective(s).as_ref())).collect();
+    fields.push(plugin_links(plugins));
+    let file = Setting {
+        section: "Advanced".into(),
+        description: "Every option, with comments. Changes there apply the next time the launcher opens.".into(),
+        ..plain_setting("config_file", SettingKind::Other("path".into()), "Config file")
+    };
+    fields.push(FieldState::new(GENERAL, &file, Some(&serde_json::json!(config.display().to_string()))));
+    with_headings(fields)
+}
+
+/// Every plugin, with a switch, and a page to open for those with settings.
+fn plugin_links(plugins: &[PluginInfo]) -> FieldState {
+    let setting = Setting {
+        section: "Plugins".into(),
+        description: "Switch a plugin on or off (at once); click one to edit its settings.".into(),
+        ..plain_setting("plugins", SettingKind::Other("plugins".into()), "Plugins")
+    };
+    let mut f = FieldState::new(GENERAL, &setting, None);
+    f.kind = kind::LINKS;
+    f.links = links_of(plugins);
+    f
+}
+
+fn links_of(plugins: &[PluginInfo]) -> Vec<PluginLink> {
+    let mut links: Vec<PluginLink> = plugins
+        .iter()
+        .map(|p| {
+            let n = p.manifest.settings.len();
+            let mut about = match n {
+                0 => "no settings".to_string(),
+                1 => "1 setting".to_string(),
+                n => format!("{n} settings"),
+            };
+            if p.enabled && !p.manifest.missing_required(&p.settings).is_empty() {
+                about += " · needs setup";
+            }
+            PluginLink {
+                id: p.manifest.id.clone(),
+                name: p.manifest.name.clone(),
+                about,
+                enabled: p.enabled,
+                locked: p.manifest.id == crate::builtin::plugins::ID,
+                openable: n > 0,
+            }
+        })
+        .collect();
+    links.sort_by_cached_key(|l| l.name.to_lowercase());
+    links
 }
 
 impl App {
     /// Show the settings page of plugin `id` in place of the list.
     pub(super) fn open_settings(&self, ui: &MainWindow, id: &str) {
+        if id == GENERAL {
+            return self.open_general_settings(ui);
+        }
+        if let Some(view) = self.plugin_view(id) {
+            with_state(|s| s.settings = Some(view));
+            Self::show_page(ui);
+        }
+    }
+
+    /// Show the general settings page (the launcher's options and the plugin list).
+    pub(super) fn open_general_settings(&self, ui: &MainWindow) {
+        let fields = general_fields(&self.engine.paths().config, &self.engine.plugins().plugins);
+        with_state(|s| s.settings = Some(SettingsView::new(GENERAL, "Settings".into(), fields)));
+        Self::show_page(ui);
+    }
+
+    fn plugin_view(&self, id: &str) -> Option<SettingsView> {
         let reg = self.engine.plugins();
         let Some(p) = reg.plugins.iter().find(|p| p.manifest.id == id) else {
             log::warn!("settings: no plugin {id:?}");
-            return;
+            return None;
         };
-        let fields = fields_of(p);
-        let title = format!("{} settings", p.manifest.name);
-        with_state(|s| {
-            s.settings = Some(SettingsView {
-                plugin: id.to_string(),
-                title: title.clone(),
-                fields,
-                editing: None,
-                warned: false,
-                saving: false,
-            });
-        });
+        Some(SettingsView::new(id, format!("{} settings", p.manifest.name), fields_of(p)))
+    }
+
+    /// The page in `UiState::settings`, freshly shown in place of the list.
+    fn show_page(ui: &MainWindow) {
         ui.set_menu_open(false);
-        ui.set_settings_title(title.into());
         ui.set_settings_status(SharedString::new());
         ui.set_settings_status_error(false);
         Self::show_settings_rows(ui);
@@ -413,15 +611,27 @@ impl App {
     /// Rebuild every row (new rows, so text fields show the stored text again).
     fn show_settings_rows(ui: &MainWindow) {
         ui.set_settings_autofocus(false);
-        let (rows, dirty, title) = with_state(|s| {
-            let v = s.settings.as_ref()?;
+        let (rows, dirty, title, filter) = with_state(|s| {
+            let v = s.settings.as_mut()?;
+            // A long page gets a filter box; fresh fields (after a save) take its filter again.
+            let filter = (v.editing.is_none() && v.fields.len() >= FILTER_FROM).then(|| v.filter.clone());
+            let words: Vec<String> = v.filter.to_lowercase().split_whitespace().map(str::to_string).collect();
+            if filter.is_some() {
+                for f in &mut v.fields {
+                    f.set_filter(&words);
+                }
+                set_headings(&mut v.fields);
+            }
             Some((
                 v.active().iter().map(FieldState::row).collect::<Vec<_>>(),
                 v.active().iter().filter(|f| f.dirty()).count(),
                 v.page_title(),
+                filter,
             ))
         })
         .unwrap_or_default();
+        ui.set_settings_filterable(filter.is_some());
+        ui.set_settings_filter(filter.unwrap_or_default().into());
         ui.set_settings_title(title.into());
         ui.set_settings_fields(ModelRc::from(Rc::new(VecModel::from(rows))));
         ui.set_settings_dirty(i32::try_from(dirty).unwrap_or(i32::MAX));
@@ -508,6 +718,22 @@ impl App {
     pub(super) fn settings_entry_open(&self, index: i32, name: &str) {
         let Some(ui) = self.weak.upgrade() else { return };
         let Ok(index) = usize::try_from(index) else { return };
+        let link = with_state(|s| {
+            let v = s.settings.as_ref().filter(|v| v.editing.is_none() && !v.saving)?;
+            let f = v.fields.get(index).filter(|f| f.kind == kind::LINKS)?;
+            f.links.iter().find(|l| l.name == name && l.openable).map(|l| l.id.clone())
+        });
+        if let Some(id) = link {
+            let Some(mut view) = self.plugin_view(&id) else { return };
+            with_state(|s| {
+                view.parent = s.settings.take().map(|mut parent| {
+                    parent.warned = false;
+                    Box::new(parent)
+                });
+                s.settings = Some(view);
+            });
+            return Self::show_page(&ui);
+        }
         let imports = with_state(|s| {
             s.settings.as_ref().and_then(|v| v.fields.get(index)).is_some_and(|f| f.setting.imports(name))
         });
@@ -616,11 +842,19 @@ impl App {
         match result {
             Ok(()) => {
                 let reg = self.engine.plugins();
-                let fields = reg.plugins.iter().find(|p| p.manifest.id == plugin).map(fields_of).unwrap_or_default();
+                let mut problems = vec![];
+                let fields = if plugin == GENERAL {
+                    let config = &self.engine.paths().config;
+                    problems = self.apply_config(&ui, &config::Config::load_from(config));
+                    general_fields(config, &reg.plugins)
+                } else {
+                    reg.plugins.iter().find(|p| p.manifest.id == plugin).map(fields_of).unwrap_or_default()
+                };
                 with_state(|s| s.settings.as_mut().map(|v| v.fields = fields));
                 Self::show_settings_rows(&ui);
-                ui.set_settings_status("Saved".into());
-                ui.set_settings_status_error(false);
+                let status = std::iter::once("Saved".to_string()).chain(problems.iter().cloned()).collect::<Vec<_>>();
+                ui.set_settings_status(status.join(" · ").into());
+                ui.set_settings_status_error(!problems.is_empty());
             }
             Err(errors) => {
                 let general = with_state(|s| {
@@ -670,12 +904,92 @@ impl App {
             }
             Some((false, true)) => Self::close_entry(&ui),
             Some((false, false)) => {
+                if self.back_to_parent(&ui) {
+                    return;
+                }
                 self.close_settings();
                 // Back to the search that opened the page, with fresh rows (values changed).
                 ui.invoke_focus_input();
                 self.search(ui.get_query().to_string());
             }
             None => {}
+        }
+    }
+
+    /// Leave a plugin page opened from the general page for that page again, its plugin list
+    /// brought up to date. Whether there was one.
+    fn back_to_parent(&self, ui: &MainWindow) -> bool {
+        let Some(mut parent) = with_state(|s| s.settings.as_mut().and_then(|v| v.parent.take())) else {
+            return false;
+        };
+        let links = links_of(&self.engine.plugins().plugins);
+        for f in parent.fields.iter_mut().filter(|f| f.kind == kind::LINKS) {
+            f.links.clone_from(&links);
+        }
+        with_state(|s| s.settings = Some(*parent));
+        Self::show_page(ui);
+        true
+    }
+
+    /// Switch plugin `name` of plugin list `index` on or off, saved at once (not with the page).
+    pub(super) fn settings_link_toggle(&self, index: i32, name: &str) {
+        let Some(ui) = self.weak.upgrade() else { return };
+        let Ok(index) = usize::try_from(index) else { return };
+        // Shown switched at once; the registry has the last word when the reload is done.
+        let Some((id, on)) = with_state(|s| {
+            let f = s.settings.as_mut()?.fields.get_mut(index).filter(|f| f.kind == kind::LINKS)?;
+            let link = f.links.iter_mut().find(|l| l.name == name && !l.locked)?;
+            link.enabled = !link.enabled;
+            Some((link.id.clone(), link.enabled))
+        }) else {
+            return;
+        };
+        Self::refresh_rows(&ui);
+        ui.set_settings_status(format!("{name}: {}…", if on { "turning on" } else { "turning off" }).into());
+        ui.set_settings_status_error(false);
+        let app = self.clone();
+        let name = name.to_string();
+        std::thread::spawn(move || {
+            let result = app.engine.set_plugin_value(&id, "enabled", toml_edit::value(on));
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = app.weak.upgrade() else { return };
+                let links = links_of(&app.engine.plugins().plugins);
+                let shown = with_state(|s| {
+                    let v = s.settings.as_mut().filter(|v| v.plugin == GENERAL && v.editing.is_none())?;
+                    for f in v.fields.iter_mut().filter(|f| f.kind == kind::LINKS) {
+                        f.links.clone_from(&links);
+                    }
+                    Some(())
+                });
+                if shown.is_none() {
+                    return;
+                }
+                Self::refresh_rows(&ui);
+                let (status, error) = match result {
+                    Ok(()) => (format!("{name} is {}", if on { "on" } else { "off" }), false),
+                    Err(e) => (format!("{name}: {e}"), true),
+                };
+                ui.set_settings_status(status.into());
+                ui.set_settings_status_error(error);
+            });
+        });
+    }
+
+    /// The filter box: show only the fields (and plugins) that contain every word typed.
+    pub(super) fn settings_filter(&self, text: &str) {
+        let Some(ui) = self.weak.upgrade() else { return };
+        let words: Vec<String> = text.to_lowercase().split_whitespace().map(str::to_string).collect();
+        let changed = with_state(|s| {
+            let v = s.settings.as_mut().filter(|v| v.editing.is_none())?;
+            v.filter = text.to_string();
+            for f in &mut v.fields {
+                f.set_filter(&words);
+            }
+            set_headings(&mut v.fields);
+            Some(())
+        });
+        if changed.is_some() {
+            Self::refresh_rows(&ui);
         }
     }
 
@@ -712,6 +1026,27 @@ impl App {
 pub(super) fn demo_rows(manifest: &str, values: &serde_json::Value) -> Vec<SettingField> {
     let m = crate::plugin::manifest::Manifest::parse(manifest, "demo").unwrap();
     m.settings.iter().map(|s| FieldState::new(&m.id, s, values.get(&s.key)).row()).collect()
+}
+
+/// The general page's rows for the config file at `config`, listing `plugins` as (name, one
+/// line about it, switched on) (screenshots).
+#[cfg(test)]
+pub(super) fn demo_general_rows(config: &std::path::Path, plugins: &[(&str, &str, bool)]) -> Vec<SettingField> {
+    let mut fields = general_fields(config, &[]);
+    for f in fields.iter_mut().filter(|f| f.kind == kind::LINKS) {
+        f.links = plugins
+            .iter()
+            .map(|&(name, about, enabled)| PluginLink {
+                id: name.to_string(),
+                name: name.to_string(),
+                about: about.to_string(),
+                enabled,
+                locked: name == "Plugins",
+                openable: !about.contains("no settings"),
+            })
+            .collect();
+    }
+    fields.iter().map(FieldState::row).collect()
 }
 
 /// The rows of entry `name` of table setting `key`, as its form would show them (screenshots).
@@ -854,17 +1189,14 @@ mod tests {
 
     #[test]
     fn an_entry_form_writes_its_fields_into_the_table() {
-        let mut v = SettingsView {
-            plugin: "p".into(),
-            title: "P settings".into(),
-            fields: vec![servers(&serde_json::json!({
+        let mut v = SettingsView::new(
+            "p",
+            "P settings".into(),
+            vec![servers(&serde_json::json!({
                 "fs": {"command": ["x"], "url": "", "extra": 1},
                 "gh": {"url": "https://h"},
             }))],
-            editing: None,
-            warned: false,
-            saving: false,
-        };
+        );
         v.editing = Some(EntryEdit::new("p", 0, &v.fields[0], "fs"));
         assert_eq!(v.page_title(), "P settings › fs");
         let e = v.editing.as_mut().unwrap();
@@ -910,5 +1242,29 @@ mod tests {
         let e = EntryEdit::new("ai", 0, &f, "files");
         let kinds: Vec<i32> = e.fields.iter().map(|f| f.kind).collect();
         assert_eq!(kinds, [kind::TEXT, kind::LINES, kind::TEXT, kind::PAIRS, kind::PAIRS, kind::LINES]);
+    }
+
+    #[test]
+    fn the_general_page_has_sections_plugins_and_the_config_file() {
+        let (_tmp, path) = {
+            let tmp = crate::test_support::tmp();
+            let path = tmp.path().join("config.toml");
+            std::fs::write(&path, "max_results = 5\n[plugins.x]\na = 1\n").unwrap();
+            (tmp, path)
+        };
+        let fields = general_fields(&path, &[]);
+        let headings: Vec<&str> = fields.iter().map(|f| f.heading.as_str()).filter(|h| !h.is_empty()).collect();
+        assert_eq!(headings, ["Appearance", "Behaviour", "Network", "Plugins", "Advanced"], "each once");
+        let results = fields.iter().find(|f| f.setting.key == "max_results").unwrap();
+        assert_eq!((results.text.as_str(), results.user_set), ("5", true));
+        let theme = fields.iter().find(|f| f.setting.key == "theme").unwrap();
+        assert_eq!((theme.kind, theme.text.as_str(), theme.user_set), (kind::CHOICE, "auto", false));
+        let animations = fields.iter().find(|f| f.setting.key == "animations").unwrap();
+        assert_eq!((animations.text.as_str(), animations.user_set), ("true", false), "the default, not off");
+        let links = fields.iter().find(|f| f.kind == kind::LINKS).unwrap();
+        assert!(links.links.is_empty() && !links.dirty() && links.changes().is_empty());
+        let file = fields.last().unwrap();
+        assert_eq!((file.kind, file.text.as_str()), (kind::READ_ONLY, path.to_str().unwrap()));
+        assert!(fields.iter().all(|f| f.changes().is_empty()), "nothing to save until edited");
     }
 }

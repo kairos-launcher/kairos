@@ -24,7 +24,16 @@ struct Cmd {
     destructive: bool,
 }
 
-const CMDS: [Cmd; 7] = [
+const CMDS: [Cmd; 8] = [
+    // Opens the launcher's own settings page (`config::GENERAL`), nothing to run.
+    Cmd {
+        id: "settings",
+        title: "Launcher settings",
+        keywords: "preferences options configure launcher kairos plugins",
+        icons: &["preferences-system", "preferences-desktop", "systemsettings"],
+        glyph: "C",
+        destructive: false,
+    },
     Cmd {
         id: "lock",
         title: "Lock screen",
@@ -173,6 +182,9 @@ impl SystemProvider {
 
     fn row(c: &Cmd, score: f64) -> ResultItem {
         let mut sub = String::from("System");
+        if c.id == "settings" {
+            sub = "Kairos and its plugins".into();
+        }
         if c.id == "trash"
             && let Some(n) = trash_count()
         {
@@ -248,6 +260,7 @@ impl Provider for SystemProvider {
         let c = find(result_id).ok_or_else(|| format!("unknown command {result_id}"))?;
         match action_id {
             "confirm" => Ok(ExecOutcome::complete(format!("{TRIGGER}{}!", c.id))),
+            "run" if c.id == "settings" => Ok(ExecOutcome::Settings(crate::config::GENERAL.into())),
             "run" => {
                 Self::run(c.id)?;
                 Ok(ExecOutcome::Close)
@@ -297,6 +310,16 @@ mod tests {
         assert_eq!(r[0].id, "shutdown");
         assert!(r[0].score < 1.0);
         assert_eq!(p.query(&q("", Some(TRIGGER))).len(), CMDS.len());
+    }
+
+    #[test]
+    fn settings_opens_the_launchers_settings_page() {
+        let p = SystemProvider::new(&serde_json::json!({}));
+        let r = p.query(&q("settings", None));
+        assert_eq!(r[0].id, "settings");
+        assert_eq!(p.query(&q("preferences", None))[0].id, "settings", "found by its keywords");
+        let out = p.execute("settings", "run", "settings").unwrap();
+        assert_eq!(out, ExecOutcome::Settings(crate::config::GENERAL.into()));
     }
 
     #[test]

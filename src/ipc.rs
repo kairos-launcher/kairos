@@ -10,10 +10,12 @@ pub enum Command {
     Show,
     Hide,
     Quit,
+    /// Show the general settings page.
+    Settings,
 }
 
 impl Command {
-    const ALL: [Self; 4] = [Self::Toggle, Self::Show, Self::Hide, Self::Quit];
+    const ALL: [Self; 5] = [Self::Toggle, Self::Show, Self::Hide, Self::Quit, Self::Settings];
 
     /// The word on the wire.
     pub fn as_str(self) -> &'static str {
@@ -22,6 +24,7 @@ impl Command {
             Self::Show => "show",
             Self::Hide => "hide",
             Self::Quit => "quit",
+            Self::Settings => "settings",
         }
     }
 }

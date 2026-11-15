@@ -385,13 +385,21 @@ impl Engine {
         use manifest::SettingKind;
         let reg = self.plugins();
         let general = |msg: String| vec![(String::new(), msg)];
-        let plugin = reg.plugins.iter().find(|p| p.manifest.id == id).ok_or_else(|| general("plugin gone".into()))?;
+        // The general page edits the launcher's own options, at the top level of config.toml.
+        let launcher = id == crate::config::GENERAL;
+        let settings = if launcher {
+            crate::config::general_settings()
+        } else {
+            let plugin =
+                reg.plugins.iter().find(|p| p.manifest.id == id).ok_or_else(|| general("plugin gone".into()))?;
+            &plugin.manifest.settings
+        };
         let mut values = vec![];
         let mut secrets = vec![];
         let mut errors = vec![];
         for change in changes {
             let key = change.key().to_string();
-            let Some(setting) = plugin.manifest.settings.iter().find(|s| s.key == key) else {
+            let Some(setting) = settings.iter().find(|s| s.key == key) else {
                 errors.push((key, "not a setting of this plugin".into()));
                 continue;
             };
@@ -409,10 +417,18 @@ impl Engine {
                 (SettingChange::Set { text, .. }, SettingKind::Number) if text.trim().is_empty() => {
                     values.push((key, toml_edit::Item::None));
                 }
-                (SettingChange::Set { text, .. }, _) => match setting.parse_input(&text) {
-                    Ok(item) => values.push((key, item.unwrap_or_default())),
-                    Err(e) => errors.push((key, e)),
-                },
+                (SettingChange::Set { text, .. }, _) => {
+                    match setting.parse_input(&text).and_then(|item| {
+                        let item = item.unwrap_or_default();
+                        if launcher && !item.is_none() {
+                            crate::config::check_general_value(&key, &item)?;
+                        }
+                        Ok(item)
+                    }) {
+                        Ok(item) => values.push((key, item)),
+                        Err(e) => errors.push((key, e)),
+                    }
+                }
                 (SettingChange::SecretEntry { .. }, _) => errors.push((key, "not a list of named secrets".into())),
             }
         }
@@ -421,7 +437,7 @@ impl Engine {
         }
         let mut result = Ok(());
         if !values.is_empty() {
-            result = crate::config::set_plugin_values(&self.paths.config, id, values);
+            result = crate::config::set_values(&self.paths.config, (!launcher).then_some(id), values);
         }
         for (key, name, value) in secrets {
             if result.is_err() {
@@ -1193,5 +1209,20 @@ mod tests {
         let out = e.execute(&item, "complete", &ExecCtx::none()).unwrap();
         assert!(out.keeps_open());
         assert_eq!(out.query(), Some("kill "));
+    }
+
+    #[test]
+    fn the_general_page_saves_only_valid_launcher_options() {
+        let (_tmp, icons) = test_store();
+        let e = Engine::from_plugins(vec![], Frecency::load(None), 8, icons);
+        let set = |key: &str, text: &str| SettingChange::Set { key: key.into(), text: text.into() };
+        let err = e
+            .save_settings(
+                crate::config::GENERAL,
+                vec![set("max_results", "lots"), set("keep_search_s", "-1"), set("nope", "1"), set("theme", "dark")],
+            )
+            .unwrap_err();
+        let keys: Vec<&str> = err.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["max_results", "keep_search_s", "nope"]);
     }
 }

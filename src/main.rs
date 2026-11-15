@@ -38,7 +38,7 @@ fn main() -> ExitCode {
     let cfg = config::Config::load();
     let result = match cli {
         Cli::Run { background } => {
-            apply_start_on_boot(&cfg);
+            autostart::apply(cfg.start_on_boot);
             ui::run(&cfg, background)
         }
         other => cli::run(other, &cfg),
@@ -49,14 +49,5 @@ fn main() -> ExitCode {
             eprintln!("{e}");
             ExitCode::FAILURE
         }
-    }
-}
-
-/// `start_on_boot` in config.toml registers or removes autostart on every start.
-fn apply_start_on_boot(cfg: &config::Config) {
-    let Some(on) = cfg.start_on_boot else { return };
-    let result = if on { autostart::install() } else { autostart::uninstall() };
-    if let Err(e) = result {
-        log::warn!("start_on_boot: {e}");
     }
 }

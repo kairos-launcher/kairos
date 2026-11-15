@@ -621,6 +621,32 @@ fn render_screenshots() {
     ui.set_settings_status_error(false);
     ui.set_settings_dirty(0);
     shot("light-settings-files", false, "plugin files", false, 0);
+    let config = tmp.path().join("config.toml");
+    std::fs::write(&config, "theme = \"dark\"\nmax_results = 10\n").unwrap();
+    let general = super::settings::demo_general_rows(
+        &config,
+        &[
+            ("AI", "9 settings · needs setup", true),
+            ("Clipboard", "no settings", true),
+            ("Custom actions", "1 setting", true),
+            ("Files", "4 settings", true),
+            ("Plugins", "no settings", true),
+            ("Web search", "3 settings", false),
+        ],
+    );
+    ui.set_settings_title("Settings".into());
+    ui.set_settings_filterable(true);
+    ui.set_settings_fields(ModelRc::new(VecModel::from(general.clone())));
+    shot("dark-settings-general", true, "", false, 0);
+    shot("light-settings-general", false, "", false, 0);
+    let network = general.iter().position(|r| r.section == "Network").unwrap();
+    ui.set_settings_fields(ModelRc::new(VecModel::from(general[network..].to_vec())));
+    shot("dark-settings-general-network", true, "", false, 0);
+    let plugins = general.iter().position(|r| r.section == "Plugins").unwrap();
+    ui.set_settings_fields(ModelRc::new(VecModel::from(general[plugins..].to_vec())));
+    shot("light-settings-general-plugins", false, "", false, 0);
+    ui.set_settings_fields(ModelRc::new(VecModel::from(general[general.len() - 2..].to_vec())));
+    shot("light-settings-general-tail", false, "", false, 0);
 }
 
 #[test]
@@ -679,4 +705,89 @@ fn settings_page_takes_the_keys_tab_moves_between_fields() {
     press(&ui, Key::Escape);
     assert_eq!(*log.borrow(), ["edit 0 x", "edit 1 true", "edit 2 y", "save", "back"]);
     assert_eq!(ui.get_query(), "", "typing never reached the search box");
+}
+
+#[test]
+fn the_general_page_opens_a_plugins_page_and_comes_back_with_its_edits() {
+    let ui = setup();
+    let tmp = crate::test_support::tmp();
+    let paths = engine::Paths { config: tmp.path().join("config.toml"), ..Default::default() };
+    let engine = Engine::with_paths(&Config::default(), paths);
+    let app = App { weak: ui.as_weak(), engine, shared: Arc::default() };
+    app.open_general_settings(&ui);
+    assert!(ui.get_settings_open());
+    assert_eq!(ui.get_settings_title(), "Settings");
+    let rows = || ui.get_settings_fields().iter().collect::<Vec<_>>();
+    let theme = rows().iter().position(|r| r.key == "theme").unwrap();
+    app.settings_edited(i32::try_from(theme).unwrap(), "dark");
+    let links = rows().iter().position(|r| r.kind == 11).unwrap();
+    let openable: Vec<bool> = rows()[links].openable.iter().collect();
+    assert!(openable.contains(&false), "plugins without settings are listed too");
+    let first = openable.iter().position(|o| *o).expect("bundled plugins with settings are listed");
+    let plugin = rows()[links].names.row_data(first).unwrap();
+    app.settings_entry_open(i32::try_from(links).unwrap(), &plugin);
+    assert_eq!(ui.get_settings_title(), format!("{plugin} settings"));
+    assert!(rows().iter().all(|r| r.kind != 11), "the plugin's own fields");
+    app.settings_back();
+    assert_eq!(ui.get_settings_title(), "Settings", "back on the general page");
+    assert_eq!((rows()[theme].text.as_str(), ui.get_settings_dirty()), ("dark", 1), "its edit kept");
+    app.settings_back();
+    assert_eq!(ui.get_settings_status(), "Unsaved changes: Esc again to discard them");
+}
+
+#[test]
+fn the_general_page_filters_and_switches_plugins() {
+    let ui = setup();
+    let tmp = crate::test_support::tmp();
+    let config = tmp.path().join("config.toml");
+    let paths = engine::Paths { config: config.clone(), ..Default::default() };
+    let engine = Engine::with_paths(&Config::default(), paths);
+    let app = App { weak: ui.as_weak(), engine, shared: Arc::default() };
+    app.open_general_settings(&ui);
+    assert!(ui.get_settings_filterable(), "a long page gets a filter box");
+    let rows = || ui.get_settings_fields().iter().collect::<Vec<_>>();
+    let shown = || rows().iter().filter(|r| !r.hidden).map(|r| r.key.to_string()).collect::<Vec<_>>();
+
+    app.settings_filter("PROXY");
+    assert_eq!(shown(), ["proxy", "no_proxy"]);
+    let first = rows().into_iter().find(|r| !r.hidden).unwrap();
+    assert_eq!((first.section.as_str(), first.first_shown), ("Network", true), "its heading, no line above");
+
+    app.settings_filter("web");
+    let links = rows().into_iter().find(|r| r.kind == 11).unwrap();
+    assert!(!links.hidden);
+    let names: Vec<String> = links.names.iter().map(|n| n.to_string()).collect();
+    assert!(!names.is_empty() && names.iter().all(|n| n.to_lowercase().contains("web")), "{names:?}");
+
+    app.settings_filter("");
+    assert!(rows().iter().all(|r| !r.hidden));
+    let i = rows().iter().position(|r| r.kind == 11).unwrap();
+    let links = &rows()[i];
+    let n = links.locked.iter().position(|l| !l).unwrap();
+    let (name, was) = (links.names.row_data(n).unwrap(), links.on.row_data(n).unwrap());
+    app.settings_link_toggle(i32::try_from(i).unwrap(), &name);
+    assert_eq!(rows()[i].on.row_data(n), Some(!was), "switched at once");
+    let locked = rows()[i].locked.iter().position(|l| l).expect("the plugin manager stays on");
+    let manager = rows()[i].names.row_data(locked).unwrap();
+    app.settings_link_toggle(i32::try_from(i).unwrap(), &manager);
+    assert_eq!(rows()[i].on.row_data(locked), Some(true));
+}
+
+#[test]
+fn a_wrapped_description_counts_all_its_lines() {
+    let ui = setup();
+    let tmp = crate::test_support::tmp();
+    let config = tmp.path().join("config.toml");
+    let general = super::settings::demo_general_rows(&config, &[]);
+    let hotkey = general.iter().find(|r| r.key == "hotkey").unwrap().clone();
+    let height = |row: SettingField| {
+        ui.set_settings_fields(ModelRc::new(VecModel::from(vec![row])));
+        ui.set_settings_open(true);
+        // Rows are created lazily; any walk of the tree does it here.
+        ui.window().dispatch_event(WindowEvent::PointerMoved { position: slint::LogicalPosition::new(5.0, 5.0) });
+        ui.get_wanted_height()
+    };
+    let wrapped = height(hotkey.clone());
+    let short = height(SettingField { description: "short".into(), ..hotkey });
+    assert!(wrapped > short + 10.0, "the page is tall enough for the second line: {wrapped} vs {short}");
 }

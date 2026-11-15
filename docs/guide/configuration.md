@@ -68,9 +68,19 @@ Lists and tables (`roots`, `engines`, …) are edited on the settings page or in
 
 ## Launcher settings
 
-The launcher's own settings (hotkey, number of results, theme, tray icon, monitor, proxy) have no
-page yet: they are in [`config.toml`](./config-file#launcher-settings). The tray icon's
-**Settings** entry opens the file.
+The launcher's own settings (theme, hotkey, number of results, tray icon, monitor, proxy, …) are
+on the **Settings** page. Open it from the tray icon's **Settings** entry, by searching for
+`settings`, or with `kairos --settings` (handy as a desktop shortcut where there is no tray).
+
+- Settings are grouped in sections; the filter box at the top shows only those (and the plugins)
+  that contain every word you type.
+- The **Plugins** list has a switch for every plugin, which turns it on or off at once. Click a
+  plugin with settings to open its page; Esc comes back.
+- Save with Ctrl+S. Everything applies at once, including a new hotkey and the tray icon; if
+  another app holds the hotkey, the page says so and the old one keeps working.
+
+The same options are in [`config.toml`](./config-file#launcher-settings), whose path the page
+shows with a link to edit it.
 
 Each [plugin's page](/plugins/) lists its settings, with their keys for `plugin set` and
 `config.toml`.

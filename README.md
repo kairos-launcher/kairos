@@ -96,8 +96,8 @@ your desktop; `kairos --install-shortcut` does this for GNOME.
 
 Settings live in `~/.config/kairos/config.toml` (Windows: `%APPDATA%\kairos\config.toml`).
 The file explains every option; plugins add their settings to it, commented out at their
-defaults. Changes apply the next time the window opens. The tray icon's **Settings** entry opens
-the file.
+defaults. Changes apply the next time the window opens. The tray icon's **Settings** entry (or
+`kairos --settings`) opens a settings page for the launcher's options and every plugin's.
 
 A `portable` file next to the executable keeps everything (config, history, plugins, cache) in a
 `data` folder beside it.

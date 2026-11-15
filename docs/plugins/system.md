@@ -1,12 +1,13 @@
 # System
 
-Lock, sleep, log out, restart, shut down, empty the trash. Id `builtin-system`, trigger `sys `,
+Settings, lock, sleep, log out, restart, shut down, empty the trash. Id `builtin-system`, trigger `sys `,
 also answers plain searches.
 
 ## Commands
 
 | Type | Does |
 |---|---|
+| `sys settings` | **Launcher settings**: open the launcher's [settings page](/guide/configuration#launcher-settings). |
 | `sys lock` | Lock screen. |
 | `sys sleep` | Sleep. |
 | `sys hibernate` | Hibernate. |
@@ -14,7 +15,7 @@ also answers plain searches.
 | `sys restart` | Restart. Asks first. |
 | `sys shut down` | Shut down. Asks first. |
 | `sys empty trash` | Empty the trash. Asks first. |
-| `shut`, `lock` | Plain searches of three letters or more also find these. |
+| `settings`, `shut`, `lock` | Plain searches of three letters or more also find these. |
 
 "Asks first" means Enter turns the search into `sys restart!`, whose single row runs it.
 
