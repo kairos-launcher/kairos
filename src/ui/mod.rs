@@ -533,7 +533,9 @@ impl App {
         let Some(ui) = self.weak.upgrade() else { return };
         let keys: Vec<String> = items.iter().map(engine::key).collect();
         let cursor = usize::try_from(ui.get_selected()).unwrap_or(0);
+        let scale = ui.window().scale_factor();
         let (rows, model, mut shown, fade) = with_state(|s| {
+            s.icons.for_scale(scale);
             let rows: Vec<Item> = items.iter().map(|r| rows::to_item(r, &mut s.icons)).collect();
             (rows, s.model.clone(), std::mem::take(&mut s.shown_keys), follow && s.animations)
         });
