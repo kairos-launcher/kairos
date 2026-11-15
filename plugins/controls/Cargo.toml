@@ -1,0 +1,49 @@
+[package]
+name = "controls"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Media, volume, Wi-Fi, Bluetooth, brightness, dark mode and Do Not Disturb for the launcher (JSON-RPC stdio)."
+
+[[bin]]
+name = "kairos-controls"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Local time for `dnd until 14:30` (shared parser with the timer plugin).
+jiff = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# MPRIS players, NetworkManager, BlueZ and logind over D-Bus (no playerctl needed).
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Media_Control",
+    "Devices_Radios",
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Registry",
+    "Win32_System_Variant",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+winresource = { version = "0.1", default-features = false }
+
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

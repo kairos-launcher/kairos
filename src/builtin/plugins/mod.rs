@@ -875,6 +875,7 @@ mod tests {
             plugins: root.join("plugins"),
             frecency: root.join("frecency.json"),
             picks: root.join("query_picks.json"),
+            recent: root.join("recent.json"),
             secrets: root.join("secrets"),
         };
         let engine = Engine::with_paths(&Config::default(), paths);

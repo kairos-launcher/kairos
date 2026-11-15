@@ -59,5 +59,6 @@ features:
 | `uuid`, `genpw 32`, `hash sha256 hi` | UUIDs, passwords, URL/Base64 encoding, hashes | [Dev utilities](/plugins/devtools) |
 | `github`, `bm rust docs` | Open browser bookmarks | [Bookmarks](/plugins/bookmarks) |
 | `timer 10m tea` | Timers and alarms with a notification | [Timer](/plugins/timer) |
+| `pause`, `vol 40`, `wifi off`, `dnd 30m` | Media, volume, Wi-Fi, Bluetooth, dark mode, brightness, Do Not Disturb | [Controls](/plugins/controls) |
 | `plugin` | Enable, configure, install and remove plugins | [Plugins](/plugins/#managing-plugins) |
 | `update` | Check for a new version and install it | [Update](/plugins/update) |

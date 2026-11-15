@@ -31,6 +31,7 @@ What the launcher learns as you use it. Safe to delete: it starts again from scr
 | `query_picks.json` | The result you last picked for each search text. |
 | `shell_history.json` | Recent [shell](/plugins/shell) commands (readable only by you). |
 | `timers.json` | Running and recent [timers](/plugins/timer). |
+| `plugins/controls/dnd.json` | When [Do Not Disturb](/plugins/controls) turns itself off. |
 | `update.json` | When the [updater](/plugins/update) last found nothing new. |
 
 ## Cache

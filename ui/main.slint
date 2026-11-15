@@ -61,6 +61,8 @@ export component MainWindow inherits Window {
     in property <[ActionItem]> actions;
     in-out property <bool> menu-open: false;
     in-out property <int> action-selected: 0;
+    // Down/Up in an empty search box: list the entries run last.
+    callback show-recent();
     callback activate(int);
     callback open-menu(int);
     callback run-action(int, int);
@@ -263,6 +265,11 @@ export component MainWindow inherits Window {
                     if root.items.length > 0 {
                         root.open-menu(root.selected);
                     }
+                    return accept;
+                }
+                // Nothing typed and no list yet: the arrows bring up the entries run last.
+                if (e.text == Key.DownArrow || e.text == Key.UpArrow) && root.query == "" && root.items.length == 0 {
+                    root.show-recent();
                     return accept;
                 }
                 if e.text == Key.DownArrow {

@@ -26,6 +26,7 @@ jobs:
       - run: cargo fmt --manifest-path plugins/bookmarks/Cargo.toml --check
       - run: cargo fmt --manifest-path plugins/emoji/Cargo.toml --check
       - run: cargo fmt --manifest-path plugins/timer/Cargo.toml --check
+      - run: cargo fmt --manifest-path plugins/controls/Cargo.toml --check
       - run: cargo fmt --manifest-path plugins/devtools/Cargo.toml --check
       - run: cargo fmt --manifest-path examples/plugins/echo-rs/Cargo.toml --check
       - run: test -z "$(gofmt -l examples/plugins/echo-go)"
@@ -52,6 +53,7 @@ jobs:
           cargo test --manifest-path plugins/bookmarks/Cargo.toml
           cargo test --manifest-path plugins/emoji/Cargo.toml
           cargo test --manifest-path plugins/timer/Cargo.toml
+          cargo test --manifest-path plugins/controls/Cargo.toml
           cargo test --manifest-path plugins/devtools/Cargo.toml
           cargo build --manifest-path examples/plugins/echo-rs/Cargo.toml
           go -C examples/plugins/echo-go vet ./...

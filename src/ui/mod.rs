@@ -252,6 +252,8 @@ impl App {
         let app = self.clone();
         ui.on_query_changed(move |text| app.search(text.to_string()));
         let app = self.clone();
+        ui.on_show_recent(move || app.show_recent());
+        let app = self.clone();
         ui.on_activate(move |row| app.activate(row, None));
         let app = self.clone();
         ui.on_run_action(move |row, action| app.activate(row, Some(action)));
@@ -508,6 +510,27 @@ impl App {
             }
             if current() && app.engine.fetch_lazy_icons(&mut found) && current() {
                 app.publish(found, true);
+            }
+        });
+    }
+
+    /// Down/Up in an empty search box: the entries run last, newest first, the first selected.
+    fn show_recent(&self) {
+        let Some(ui) = self.weak.upgrade() else { return };
+        // A search still answering (the one for the emptied box) must not replace the list.
+        let qid = self.shared.latest.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut items = self.engine.recent();
+        if items.is_empty() {
+            return;
+        }
+        ui.set_selected(0);
+        self.show_results(items.clone(), false);
+        // Lazy plugin icons are only cached for the running session: ask for them again.
+        let app = self.clone();
+        std::thread::spawn(move || {
+            let current = || app.shared.latest.load(Ordering::SeqCst) == qid;
+            if app.engine.fetch_lazy_icons(&mut items) && current() {
+                app.publish(items, true);
             }
         });
     }

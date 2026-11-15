@@ -37,6 +37,10 @@ updates:
     directory: /plugins/timer
     schedule:
       interval: monthly
+  - package-ecosystem: cargo
+    directory: /plugins/controls
+    schedule:
+      interval: monthly
   - package-ecosystem: github-actions
     directory: /
     schedule:
